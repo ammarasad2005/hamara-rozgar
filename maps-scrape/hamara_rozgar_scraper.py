@@ -93,6 +93,18 @@ TARGET_CATEGORIES = [
     "Carpenter",
 ]
 
+# Semantic Pakistani local marketplace query synonyms mapping (Query Expansion)
+CATEGORY_SEARCH_QUERIES = {
+    "Plumber": "Plumber OR Sanitary Store OR Hardware Store OR Pipe Fitting",
+    "AC Technician": "AC Repair OR AC Technician OR Refrigerator Repair OR HVAC",
+    "Electrician": "Electrician OR Electric Store OR Fan Repair OR Bijli Shop",
+    "Tutor Academy": "Tutor Academy OR Tuition Center OR Home Tutors",
+    "Beauty Parlor": "Beauty Parlor OR Beauty Salon OR Bridal Makeup Studio",
+    "Car Mechanic": "Car Mechanic OR Auto Workshop OR EFI Tuning OR Puncture Shop",
+    "Carpenter": "Carpenter OR Wood Works OR Furniture Shop"
+}
+
+
 # Env-configurable knobs
 HEADLESS     = bool(int(os.getenv("HEADLESS", "0")))
 SLOW_MO      = int(os.getenv("SLOW_MO", "150"))
@@ -508,13 +520,14 @@ async def search_node(
     """
     Execute a single (node, category) search and return all scraped Providers.
     """
-    query = f"{category} near {lat:.5f}, {lon:.5f}"
+    search_term = CATEGORY_SEARCH_QUERIES.get(category, category)
+    query = f"{search_term} near {lat:.5f}, {lon:.5f}"
     search_url = (
         f"https://www.google.com/maps/search/{query.replace(' ', '+')}/"
         f"@{lat},{lon},15z?hl=en"
     )
 
-    log.info(f"→ {query}")
+    log.info(f"→ Category: {category} (Query: {search_term})")
 
     try:
         await page.goto(search_url, wait_until="domcontentloaded", timeout=30_000)
