@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Hamara-Rozgar Technical Documentation</title>
+<style>
+  @page {
+    size: A4;
+    margin: 20mm;
+    @bottom-right {
+      content: counter(page);
+      font-family: 'Helvetica Neue', Arial, sans-serif;
+      font-size: 8.5pt;
+      color: #718096;
+    }
+    @bottom-left {
+      content: "Hamara-Rozgar — AI Informal Economy Orchestrator";
+      font-family: 'Helvetica Neue', Arial, sans-serif;
+      font-size: 8.5pt;
+      color: #718096;
+    }
+  }
+  body {
+    font-family: 'Helvetica Neue', Arial, sans-serif;
+    color: #2D3748;
+    line-height: 1.6;
+    font-size: 10.5pt;
+  }
+  h1, h2, h3, h4 {
+    color: #1A365D;
+    font-weight: 700;
+  }
+  h1 {
+    font-size: 24pt;
+    border-bottom: 2px solid #3182CE;
+    padding-bottom: 8px;
+    margin-top: 0;
+    margin-bottom: 20px;
+  }
+  h2 {
+    font-size: 16pt;
+    border-bottom: 1px solid #E2E8F0;
+    padding-bottom: 6px;
+    margin-top: 26px;
+    margin-bottom: 12px;
+    page-break-after: avoid;
+  }
+  h3 {
+    font-size: 12.5pt;
+    margin-top: 18px;
+    margin-bottom: 8px;
+    page-break-after: avoid;
+  }
+  p {
+    margin-bottom: 12px;
+    text-align: justify;
+  }
+  ul, ol {
+    margin-bottom: 12px;
+    padding-left: 20px;
+  }
+  li {
+    margin-bottom: 4px;
+  }
+  code {
+    font-family: 'Courier New', Courier, monospace;
+    background: #EDF2F7;
+    padding: 2px 5px;
+    border-radius: 4px;
+    font-size: 9pt;
+  }
+  pre {
+    background: #F7FAFC;
+    border: 1px solid #E2E8F0;
+    padding: 12px;
+    border-radius: 6px;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 9pt;
+    margin-bottom: 12px;
+    page-break-inside: avoid;
+  }
+  .highlight-box {
+    background: #EBF8FF;
+    border-left: 4px solid #3182CE;
+    padding: 12px 15px;
+    border-radius: 0 6px 6px 0;
+    margin-bottom: 16px;
+  }
+  .highlight-title {
+    font-weight: bold;
+    color: #2B6CB0;
+    margin-bottom: 4px;
+  }
+  .cover-page {
+    page-break-after: always;
+    text-align: center;
+    padding-top: 45mm;
+  }
+  .cover-title {
+    font-size: 32pt;
+    font-weight: bold;
+    color: #1A365D;
+    margin-bottom: 8px;
+  }
+  .cover-subtitle {
+    font-size: 16pt;
+    color: #4A5568;
+    margin-bottom: 40px;
+  }
+  .cover-meta {
+    font-size: 11pt;
+    color: #718096;
+    margin-top: 45mm;
+    line-height: 1.8;
+  }
+  .section-break {
+    page-break-before: always;
+  }
+</style>
+</head>
+<body>
+
+  <!-- Cover Page -->
+  <div class="cover-page">
+    <div class="cover-title">Hamara-Rozgar (RozgarOrch)</div>
+    <div class="cover-subtitle">AI Service Orchestrator for Informal Economy</div>
+    <div style="font-size: 13pt; color: #3182CE; font-weight: bold; margin-top: 10px;">
+      Google Antigravity Hackathon — Challenge 2
+    </div>
+    
+    <div class="cover-meta">
+      <strong>Author:</strong> Muhammad Ammar Asad<br>
+      <strong>Framework:</strong> Google Antigravity & Firebase Cloud Database<br>
+      <strong>Date:</strong> May 21st, 2026<br>
+      <strong>Version:</strong> v1.0.0 (Production Release)
+    </div>
+  </div>
+
+  <!-- Table of Contents / Executive Summary -->
+  <div class="section-break">
+    <h1>1. Executive Summary & Design Philosophy</h1>
+    <p>
+      <strong>Hamara-Rozgar (RozgarOrch)</strong> is an agentic, AI-driven marketplace orchestrator designed to solve fragmentation in Pakistan's informal economy. Informal sector jobs (plumbers, electricians, tutors, AC technicians, beauticians, mechanics) represent the backbone of Pakistan's labor market but lack centralized systems for scheduling, pricing verification, booking tracking, and dispute management.
+    </p>
+    <p>
+      This project introduces a highly coordinated, multi-agent AI system built on <strong>Google Antigravity</strong>. The application enables users to request services using natural conversational Urdu, Roman Urdu, or English. The orchestrator automatically extracts semantic parameters, resolves custom locations on-the-fly using geocoding engines, matches providers using a comprehensive 6-factor weight utility, generates dynamic travel-adjusted billing quotes, tracks job execution in real-time, and handles post-booking anomalies (such as en-route cancellations) automatically.
+    </p>
+    
+    <div class="highlight-box">
+      <div class="highlight-title">Core Success Criteria Achieved:</div>
+      <ul>
+        <li><strong>Multilingual Natural Language Parsing:</strong> Fluid handling of Urdu script and Roman Urdu slang triggers.</li>
+        <li><strong>Startup Geolocation Lock:</strong> Instant browser Geolocation GPS acquisition on app startup.</li>
+        <li><strong>Dynamic Custom Overrides:</strong> Real-time geocoding for manual, non-pre-fetched sector queries.</li>
+        <li><strong>Self-Healing Protocols:</strong> Automated re-scheduling, reputation indexing, and client voucher compensations.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Decoupled Multi-Agent Architecture -->
+  <div class="section-break">
+    <h1>2. Decoupled Multi-Agent Architecture</h1>
+    <p>
+      The core orchestration layer implements a decoupled multi-agent cooperative architecture. The agents communicate parameters sequentially and react dynamically to operational state updates:
+    </p>
+
+    <h2>1. IntentAgent (Multilingual Context & Memory Parser)</h2>
+    <p>
+      Extracts intent parameters across Urdu, Roman Urdu, and English. When the live Gemini API key is provided, the agent queries Google AI Studio's <code>gemini-1.5-flash</code> model configured with structured JSON outputs. It preserves multi-turn conversation logs: if a user types a location refinement (e.g. <em>"main sector 4 airport society mein rehta hu"</em>) after requesting a service category, the IntentAgent merges the context cleanly. An offline regex-based fallback engine is built-in for zero-downtime resilience.
+    </p>
+
+    <h2>2. DiscoveryAgent (Location & Workload Balancer)</h2>
+    <p>
+      Manages provider lookup grids. Automatically locks to browser GPS coordinates on launch. If a custom address is specified, the DiscoveryAgent issues a live call to the <strong>Google Geocoding API</strong> to lock its Lat/Lng coordinates. It filters matching categories and calculates distance vectors using the Haversine formula.
+    </p>
+    <p>
+      Providers are ranked using a 6-factor utility function:
+    </p>
+    <pre>Score = (Distance * 0.25) + (Rating * 0.20) + (Reliability * 0.20) + (Price * 0.15) + (Cancellation * 0.10) + (Sector Match * 0.10)</pre>
+
+    <h2>3. PricingAgent (Dynamic Billing Engine)</h2>
+    <p>
+      Generates fair cost quotes for both the client and provider. It calculates:
+    </p>
+    <ul>
+      <li><strong>Base Rate:</strong> Provider's standardized baseline service fee.</li>
+      <li><strong>Travel Allowance:</strong> Calculated dynamically relative to coordinates (50 PKR per kilometer).</li>
+      <li><strong>Urgency Surcharge:</strong> +30% for immediate, high-severity requests.</li>
+      <li><strong>Surge Surplus:</strong> +15% capacity surge if active providers in the specialization are low.</li>
+      <li><strong>Loyalty Discount:</strong> -10% deduction to incentivize repeat bookings.</li>
+    </ul>
+
+    <h2>4. BookingAgent (Persistent Ledger)</h2>
+    <p>
+      Commits transactional bookings to persistent storage. Integrates natively with <strong>Firebase Cloud Firestore</strong>. If database connection is pending, the BookingAgent routes entries to a reactive local cache storage to prevent app interruption.
+    </p>
+
+    <h2>5. DisputeAgent (Self-Healing Fallback Engine)</h2>
+    <p>
+      Handles en-route anomalies. If an en-route provider cancels, the DisputeAgent immediately scans the discovery matching grid, re-assigns the job card to the next-best provider, issues an automated 150 PKR voucher credit to the client, and penalizes the cancelling provider's reliability index.
+    </p>
+  </div>
+
+  <!-- UI/UX & Aesthetics -->
+  <div class="section-break">
+    <h1>3. Design System & High-End Aesthetics</h1>
+    <p>
+      The application implements a premium, high-fidelity design system utilizing responsive Glassmorphic rules built completely on Vanilla CSS:
+    </p>
+    <ul>
+      <li><strong>Smartphone Simulator:</strong> A premium, interactive frame showcasing the chat feed, quick preset Urdu slang chips, post-booking en-route tracker, and dispute simulator options.</li>
+      <li><strong>Proximity Banner:</strong> A glassmorphic location widget beneath the app header that expands to toggle GPS modes and resolve geocoded inputs, showing pulsing green and blue status lights.</li>
+      <li><strong>Antigravity Trace Console:</strong> A live developer logger displaying active workplans, task lists, sub-agent reasoning processes, and API triggers.</li>
+      <li><strong>Marketplace Control Center:</strong> A panel to coordinate active provider balances and configure active Firebase, Gemini, and Google Maps API keys dynamically.</li>
+    </ul>
+  </div>
+
+  <!-- Operational API Schemas -->
+  <div class="section-break">
+    <h1>4. API Integration & Payload Schemas</h1>
+    <p>
+      The platform integrates with three primary cloud services:
+    </p>
+
+    <h3>1. Gemini Intent Generation Endpoint</h3>
+    <pre>POST https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={API_KEY}
+Content-Type: application/json
+
+{
+  "contents": [
+    { "role": "user", "parts": [{ "text": "meri motorcyle khrab ho gyi hai" }] }
+  ],
+  "system_instruction": {
+    "parts": [{ "text": "Parse natural language to structured service/location JSON..." }]
+  },
+  "generationConfig": {
+    "responseMimeType": "application/json"
+  }
+}</pre>
+
+    <h3>2. Google Geocoding Endpoint</h3>
+    <pre>GET https://maps.googleapis.com/maps/api/geocode/json?address={LocationName},Islamabad,Pakistan&key={API_KEY}</pre>
+
+    <h3>3. Firebase Firestore Booking Schema</h3>
+    <pre>{
+  "id": "BK-3914",
+  "providerName": "Ali AC Services",
+  "service": "AC Technician",
+  "location": "GPS Location",
+  "locationCoords": { "latitude": 33.6409, "longitude": 72.9814 },
+  "pricing": { "totalPrice": 1650 },
+  "status": "Provider En-Route"
+}</pre>
+  </div>
+
+  <!-- Compilation and Standalone Packaging -->
+  <div class="section-break">
+    <h1>5. Compilation & Standalone APK Packaging</h1>
+    <p>
+      The project is fully pre-configured to be packaged into a native, standalone installer Android APK using the <strong>Capacitor</strong> framework. 
+    </p>
+    <p>
+      To compile the native app bundle on your local development machine with a standard Java JDK and Android SDK setup, execute the automated helper scripts provided in the root of the project:
+    </p>
+    <ul>
+      <li><strong>On macOS/Linux:</strong> Open your terminal and run <code>./build_apk.sh</code>.</li>
+      <li><strong>On Windows:</strong> Double-click the file <code>build_apk.bat</code>.</li>
+    </ul>
+    <p>
+      The builder will compile your React files, synchronize native resources, and invoke the Gradle wrapper task:
+    </p>
+    <pre>cd android && ./gradlew assembleRelease</pre>
+    <p>
+      The compiled debug/release installer APK will be generated immediately under:
+      <code>android/app/build/outputs/apk/release/app-release-unsigned.apk</code>
+    </p>
+  </div>
+
+</body>
+</html>
