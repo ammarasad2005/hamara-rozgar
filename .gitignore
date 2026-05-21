@@ -31,3 +31,9 @@ dist-ssr
 *.keystore
 scratch/
 src/modern-web-guidance-cache.md
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+

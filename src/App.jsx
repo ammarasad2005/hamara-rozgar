@@ -5,63 +5,62 @@ import {
   Bot, User, Sparkles, Navigation, Calendar, 
   MapPin, CheckCircle, AlertTriangle, Settings, 
   Briefcase, DollarSign, Star, Send, ShieldCheck,
-  ChevronDown, ChevronUp, Terminal, History, Check, ShieldAlert
+  ChevronDown, ChevronUp, Terminal, History, Check, ShieldAlert,
+  Phone, X, Compass, RefreshCw, HelpCircle
 } from "lucide-react";
+
+// 🔐 Configuration Settings & Credentials loaded from environment variables
+const nlpEngine = import.meta.env.VITE_NLP_ENGINE || "regex";
+const mapEngine = import.meta.env.VITE_MAP_ENGINE || "osm";
+const ollamaUrl = import.meta.env.VITE_OLLAMA_URL || "http://localhost:11434";
+const ollamaModel = import.meta.env.VITE_OLLAMA_MODEL || "llama3";
+const groqApiKey = import.meta.env.VITE_GROQ_API_KEY || "";
+const githubToken = import.meta.env.VITE_GITHUB_TOKEN || "";
+const githubModel = import.meta.env.VITE_GITHUB_MODEL || "gpt-4o";
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || "";
+const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
 
 export default function App() {
   const [orchestrator, setOrchestrator] = useState(null);
   
-  // Dashboard states
+  // 🧭 Navigation state machine
+  const [currentView, setCurrentView] = useState("home"); // "home" | "matching" | "active-booking" | "history"
+  const [isMatchingComplete, setIsMatchingComplete] = useState(false);
+  const [showDeveloperTrace, setShowDeveloperTrace] = useState(false);
+  
+  // 🛠️ Logging and tracking states
   const [traceLogs, setTraceLogs] = useState([]);
   const [workplan, setWorkplan] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [pastBookings, setPastBookings] = useState([]);
-  const [activeTab, setActiveTab] = useState("chat"); // "chat" | "ledger"
   
-  // Simulator Chat states
-  const [chatMessages, setChatMessages] = useState([
-    { sender: "bot", text: "Assalam-o-Alaikum! Main Hamara-Rozgar Self-Hosted Orchestrator hoon. Aapko kis kism ki service chahiye? (Urdu, Roman Urdu, or English)" }
-  ]);
+  // 💬 Slang Prompt Input states
   const [userInput, setUserInput] = useState("");
+  const [activeCategory, setActiveCategory] = useState(null); // plumbing, ac, electrical, cleaning, painting
   
-  // Active workflow booking states
+  // 📍 Live Proximity Location Hub States
+  const [gpsCoords, setGpsCoords] = useState(null); 
+  const [customCoords, setCustomCoords] = useState(null);
+  const [locationMode, setLocationMode] = useState("GPS"); 
+  const [customLocationName, setCustomLocationName] = useState(""); 
+  const [resolvedLocationName, setResolvedLocationName] = useState("Defaulting GPS...");
+  const [isLocationMenuOpen, setIsLocationMenuOpen] = useState(false);
+
+  // 👤 Specialist / Booking states
   const [activeIntent, setActiveIntent] = useState(null);
   const [matchedProviders, setMatchedProviders] = useState([]);
   const [selectedProvider, setSelectedProvider] = useState(null);
   const [priceQuote, setPriceQuote] = useState(null);
   const [activeBooking, setActiveBooking] = useState(null);
   const [trackingStatus, setTrackingStatus] = useState(null);
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
 
-  // Configuration Settings & Credentials (Dynamic Widescreen Credentials)
-  const [nlpEngine, setNlpEngine] = useState(() => localStorage.getItem("hr_nlp_engine") || "regex"); 
-  const [ollamaUrl, setOllamaUrl] = useState(() => localStorage.getItem("hr_ollama_url") || "http://localhost:11434");
-  const [ollamaModel, setOllamaModel] = useState(() => localStorage.getItem("hr_ollama_model") || "llama3");
-  const [groqApiKey, setGroqApiKey] = useState(() => localStorage.getItem("hr_groq_key") || "");
-  const [githubToken, setGithubToken] = useState(() => localStorage.getItem("hr_github_token") || "");
-  const [githubModel, setGithubModel] = useState(() => localStorage.getItem("hr_github_model") || "gpt-4o");
-  const [supabaseUrl, setSupabaseUrl] = useState(() => localStorage.getItem("hr_supabase_url") || "");
-  const [supabaseKey, setSupabaseKey] = useState(() => localStorage.getItem("hr_supabase_key") || "");
-  
-  // Live Status Badge Flags
+  // 📡 Supabase dynamic validation
   const [supabaseConnected, setSupabaseConnected] = useState(false);
-  const [mapEngine, setMapEngine] = useState("osm"); // "osm" | "offline"
 
-  // Dynamic Browser Geolocation States
-  const [gpsCoords, setGpsCoords] = useState(null); 
-  const [customCoords, setCustomCoords] = useState(null);
-  const [locationMode, setLocationMode] = useState("GPS"); 
-  const [customLocationName, setCustomLocationName] = useState(""); 
-  const [resolvedLocationName, setResolvedLocationName] = useState("G-13 (Fallback)");
-  const [isLocationMenuOpen, setIsLocationMenuOpen] = useState(false);
-
-  // Timeline Expandable Accordions
+  // Accordion timeline drawers
   const [openTimelineAccordions, setOpenTimelineAccordions] = useState({
-    0: false,
-    1: false,
-    2: false,
-    3: false,
-    4: false,
-    5: false
+    0: false, 1: false, 2: false, 3: false, 4: false, 5: false
   });
 
   const chatEndRef = useRef(null);
@@ -108,10 +107,10 @@ export default function App() {
             longitude: position.coords.longitude
           };
           setGpsCoords(coords);
-          setResolvedLocationName("GPS Location");
+          setResolvedLocationName("Live GPS Locked");
           agent.logAgentTrace(
             "System",
-            "GPS Location Fetched",
+            "GPS Location Locked",
             `Latitude: ${coords.latitude}, Longitude: ${coords.longitude}`,
             "Successfully fetched browser Geolocation at startup to use as default proximity center."
           );
@@ -123,6 +122,7 @@ export default function App() {
             "Using default coordinates for G-13",
             "Proximity center defaulted. Custom address updates can still be entered."
           );
+          setResolvedLocationName("G-13, Islamabad (Fallback)");
         }
       );
     }
@@ -130,20 +130,11 @@ export default function App() {
     // Initial load of bookings
     setTimeout(() => {
       loadBookings(agent);
-    }, 500);
+    }, 800);
   }, []);
 
-  // Save Credentials & Auto test connection
+  // Securely verify Supabase Connection on Mount
   useEffect(() => {
-    localStorage.setItem("hr_nlp_engine", nlpEngine);
-    localStorage.setItem("hr_ollama_url", ollamaUrl);
-    localStorage.setItem("hr_ollama_model", ollamaModel);
-    localStorage.setItem("hr_groq_key", groqApiKey);
-    localStorage.setItem("hr_github_token", githubToken);
-    localStorage.setItem("hr_github_model", githubModel);
-    localStorage.setItem("hr_supabase_url", supabaseUrl);
-    localStorage.setItem("hr_supabase_key", supabaseKey);
-    
     if (supabaseUrl && supabaseKey) {
       const cleanUrl = supabaseUrl.replace(/\/$/, "");
       fetch(`${cleanUrl}/rest/v1/bookings?limit=1`, {
@@ -166,16 +157,12 @@ export default function App() {
     } else {
       setSupabaseConnected(false);
     }
-  }, [nlpEngine, ollamaUrl, ollamaModel, groqApiKey, githubToken, githubModel, supabaseUrl, supabaseKey]);
+  }, [supabaseUrl, supabaseKey]);
 
-  // Load bookings when connection flips
+  // Reload past ledger when connection is resolved
   useEffect(() => {
     loadBookings();
   }, [supabaseConnected]);
-
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [chatMessages]);
 
   useEffect(() => {
     traceEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -199,24 +186,11 @@ export default function App() {
             longitude: position.coords.longitude
           };
           setGpsCoords(coords);
-          setResolvedLocationName("GPS Location");
-          if (activeAgent) {
-            activeAgent.logAgentTrace(
-              "System",
-              "GPS Location Locked",
-              `Latitude: ${coords.latitude}, Longitude: ${coords.longitude}`,
-              "Successfully matched browser coordinates for dynamic dispatch."
-            );
-          }
+          setResolvedLocationName("Live GPS Locked");
         },
         (error) => {
           if (activeAgent) {
-            activeAgent.logAgentTrace(
-              "System",
-              "GPS Location Access Blocked",
-              error.message,
-              "Using G-13 coordinates as absolute default fallback."
-            );
+            activeAgent.logAgentTrace("System", "GPS Location Access Blocked", error.message, "Using G-13 coordinates as absolute default fallback.");
           }
         }
       );
@@ -260,35 +234,30 @@ export default function App() {
         `OSM Coordinates: ${coords.latitude}, ${coords.longitude}`,
         "Successfully mapped dynamic address override to coordinates."
       );
+      setIsLocationMenuOpen(false);
     } else {
       // Local fallback coordinates
       setCustomCoords({ latitude: 33.6409, longitude: 72.9814 });
-      setResolvedLocationName(`${customLocationName} (Local baseline fallback)`);
+      setResolvedLocationName(`${customLocationName} (Local fallback)`);
       orchestrator.logAgentTrace(
         "System",
         "Dynamic Geocoding Fallback Lock",
         "Using default center: Lat: 33.6409, Lng: 72.9814",
         "No live OSM result or search failed. Using G-13 coordinate baseline."
       );
+      setIsLocationMenuOpen(false);
     }
   };
 
-  // Handle NLP request submission
+  // Process customer prompt booking request
   const handleRequestSubmit = async (text) => {
-    if (!text.trim()) return;
+    if (!text.trim() || !orchestrator) return;
 
-    // Direct user to chat tab in case they are looking at the ledger
-    setActiveTab("chat");
-
-    // Push user message
-    setChatMessages((prev) => [...prev, { sender: "user", text }]);
-    setUserInput("");
-
-    if (!orchestrator) return;
-
-    const previousIntent = activeIntent;
-
-    // Reset previous flows
+    // Transition to Matching view immediately
+    setCurrentView("matching");
+    setIsMatchingComplete(false);
+    
+    // Clear old details
     setActiveIntent(null);
     setMatchedProviders([]);
     setSelectedProvider(null);
@@ -296,7 +265,9 @@ export default function App() {
     setActiveBooking(null);
     setTrackingStatus(null);
 
-    // Call parsing agent (with GitHub models config support)
+    const previousIntent = activeIntent;
+
+    // 1. Stage 0: Parse Conversational Slang
     const parsedIntent = await orchestrator.parseIntent(
       text, 
       { 
@@ -307,30 +278,24 @@ export default function App() {
         githubToken, 
         githubModel 
       }, 
-      chatMessages, 
+      [], // fresh prompt
       previousIntent
     );
     
-    let activeCoords = null;
+    setActiveIntent(parsedIntent);
     
-    // Check if NLP parser detected a custom address from user's chat input
+    // Aesthetic processing delay for AI feeling
+    await new Promise(r => setTimeout(r, 600));
+
+    // 2. Stage 1: Proximity Geocoding
+    let activeCoords = null;
     const isCustomTextLocation = parsedIntent.location && 
                                  parsedIntent.location !== "G-13" && 
                                  parsedIntent.location !== "GPS Location";
 
     if (isCustomTextLocation) {
-      // Dynamic shift to Custom mode based on chat intent carryover!
       setLocationMode("Custom");
       setCustomLocationName(parsedIntent.location);
-      
-      orchestrator.logAgentTrace(
-        "System",
-        "Chat Address Extracted",
-        `Detected: "${parsedIntent.location}"`,
-        "NLP parser successfully unboxed a custom sector/society. Resolving coordinates automatically."
-      );
-
-      // Resolve it on the fly
       const resolved = await orchestrator.getCoordinates(parsedIntent.location, { mode: mapEngine });
       if (resolved) {
         setCustomCoords(resolved);
@@ -341,13 +306,11 @@ export default function App() {
         activeCoords = fallbackCoords;
       }
     } else {
-      // Standard flow - check active UI selector toggle
       if (locationMode === "Custom" && customLocationName.trim()) {
         parsedIntent.location = customLocationName.trim();
         if (customCoords) {
           activeCoords = customCoords;
         } else {
-          // Resolve customLocationName on the fly
           const resolved = await orchestrator.getCoordinates(customLocationName, { mode: mapEngine });
           if (resolved) {
             setCustomCoords(resolved);
@@ -359,58 +322,48 @@ export default function App() {
           }
         }
       } else {
-        // GPS Mode
         parsedIntent.location = "GPS Location";
-        activeCoords = gpsCoords || { latitude: 33.6409, longitude: 72.9814 }; // fallback coordinates
+        activeCoords = gpsCoords || { latitude: 33.6409, longitude: 72.9814 };
       }
     }
-    
-    setActiveIntent(parsedIntent);
 
-    if (parsedIntent.confidence < 0.6) {
-      setChatMessages((prev) => [
-        ...prev, 
-        { sender: "bot", text: `I am slightly unsure about your request. Did you mean you need a **${parsedIntent.service}** in **${parsedIntent.location}**? Please type to confirm or refine.` }
-      ]);
-      return;
-    }
+    await new Promise(r => setTimeout(r, 600));
 
-    // Call matching agent
+    // 3. Stage 2: Registry Discovery & scoring 
     const providers = await orchestrator.discoverAndRank(parsedIntent, { mode: mapEngine }, activeCoords);
     setMatchedProviders(providers);
 
     if (providers.length === 0) {
-      setChatMessages((prev) => [
-        ...prev,
-        { sender: "bot", text: `Sorry, we could not find any active ${parsedIntent.service}s in ${parsedIntent.location} right now. We have added you to our smart waitlist.` }
-      ]);
+      setIsMatchingComplete(true);
       return;
     }
+
+    await new Promise(r => setTimeout(r, 600));
 
     const topProvider = providers[0];
     setSelectedProvider(topProvider);
 
-    // Call pricing agent
+    // 4. Stage 3: Dynamic Pricing Quote
     const quote = orchestrator.calculatePricing(topProvider, parsedIntent);
     setPriceQuote(quote);
 
-    setChatMessages((prev) => [
-      ...prev,
-      { 
-        sender: "bot", 
-        text: `Behtareen! Humne aapke liye **${topProvider.name}** select kia hai jo **${topProvider.calculatedDistance} km** door hai in **${topProvider.location}**.\n\n* **Dynamic Price Quote**: ${quote.totalPrice} PKR\n* **Estimated Arrival**: ~15 mins\n\nClick **Confirm Booking** to reserve the slot!`,
-        actionable: true 
-      }
-    ]);
+    await new Promise(r => setTimeout(r, 600));
+
+    // Discover matching complete
+    setIsMatchingComplete(true);
   };
 
-  // Confirm booking flow
+  // Confirm booking write to Supabase / Local storage
   const handleConfirmBooking = async () => {
     if (!orchestrator || !selectedProvider || !priceQuote || !activeIntent) return;
 
+    // Immediately advance to dispatched view
+    setCurrentView("active-booking");
+    setTrackingStatus("Committed to Ledger");
+
     const activeCoords = locationMode === "GPS" ? gpsCoords : customCoords;
     
-    // Pass Supabase credentials to persist Booking
+    // Commit transaction to database
     const booking = await orchestrator.simulateBooking(
       selectedProvider, 
       priceQuote, 
@@ -421,33 +374,20 @@ export default function App() {
     
     setActiveBooking(booking);
     setTrackingStatus(booking.status);
-    loadBookings(); // sync past ledger list
+    loadBookings(); // sync receipt list
 
-    setChatMessages((prev) => [
-      ...prev,
-      { sender: "bot", text: `Mubarak! Aapka slot successfully book ho chuka hai.\n\n🎟️ **Booking ID**: ${booking.id}\n👤 **Provider**: ${booking.providerName}\n📅 **Time**: ${booking.timeSlot}\n\nProvider has unboxed their safety kit and is currently preparing to move!` }
-    ]);
-
-    // Start service tracking follow-ups (synced to Supabase database)
+    // Trigger en-route stepper simulation
     orchestrator.simulateServiceProgress(
       booking, 
       (updatedBooking) => {
         setTrackingStatus(updatedBooking.status);
-        loadBookings(); // update ledger
-        
-        if (updatedBooking.status === "Provider En-Route") {
-          setChatMessages((prev) => [...prev, { sender: "bot", text: `🚴 **Update**: ${updatedBooking.providerName} is now moving towards your location in ${updatedBooking.location}.` }]);
-        } else if (updatedBooking.status === "Work In Progress") {
-          setChatMessages((prev) => [...prev, { sender: "bot", text: `🛠️ **Update**: Provider arrived and has started working on the ${updatedBooking.service} repair.` }]);
-        } else if (updatedBooking.status === "Completed") {
-          setChatMessages((prev) => [...prev, { sender: "bot", text: `✅ **Update**: Service completed! Kindly rate the provider below.` }]);
-        }
+        loadBookings(); // update past list
       },
       { supabaseUrl, supabaseKey }
     );
   };
 
-  // Handle dispute triggers
+  // Dispute Agent execution triggers
   const triggerDisputeScenario = async (type) => {
     if (!orchestrator || !activeBooking) return;
     
@@ -456,27 +396,13 @@ export default function App() {
     await orchestrator.handleDispute(
       activeBooking, 
       type, 
-      `Customer simulation triggered: ${type}`, 
+      `Customer reported anomaly: ${type}`, 
       (updatedBooking) => {
         setTrackingStatus(updatedBooking.status);
-        loadBookings(); // reload past ledger records
+        loadBookings(); 
         
         if (type === "Provider Cancelled") {
-          setChatMessages((prev) => [
-            ...prev, 
-            { sender: "bot", text: `⚠️ **Urgent Update**: Provider cancelled the service. Antigravity Auto-Rescheduler has re-routed the request to next-best candidate: **${updatedBooking.providerName}**! Free 150 PKR compensation credit applied.` }
-          ]);
           setSelectedProvider(updatedBooking);
-        } else if (type === "Price Disagreement") {
-          setChatMessages((prev) => [
-            ...prev,
-            { sender: "bot", text: `⚖️ **Dispute Resolved**: 10% operational discount applied. New billing total is **${updatedBooking.pricing.totalPrice} PKR**.` }
-          ]);
-        } else if (type === "Quality Complaint") {
-          setChatMessages((prev) => [
-            ...prev,
-            { sender: "bot", text: `🛡️ **Review Registered**: Dispute registered. Case file escalated to human admin panel for review. Provider rating flagged.` }
-          ]);
         }
       }, 
       { mode: mapEngine }, 
@@ -492,7 +418,6 @@ export default function App() {
     }));
   };
 
-  // Filter traces matching specific sequential agent tasks
   const getStageTraces = (stageIndex) => {
     switch (stageIndex) {
       case 0:
@@ -512,643 +437,675 @@ export default function App() {
     }
   };
 
+  const handleQuickAction = (categoryKey, defaultText) => {
+    setActiveCategory(categoryKey);
+    setUserInput(defaultText);
+  };
+
+  const handleCompleteJob = () => {
+    setShowFeedbackModal(true);
+  };
+
+  const closeFeedbackAndReset = () => {
+    setShowFeedbackModal(false);
+    setCurrentView("home");
+    setUserInput("");
+    setActiveCategory(null);
+    setActiveBooking(null);
+  };
+
   return (
-    <div className="dashboard-container">
-      {/* 1. Left Panel: Credentials, Configurations & Workload Balancing Grid */}
-      <div className="panel">
-        <div className="panel-header">
-          <h3 className="panel-title">
-            <Briefcase size={18} color="#8b5cf6" />
-            Marketplace Control
-          </h3>
-          <span className="badge active">Live Console</span>
+    <div className="consumer-portal-container">
+      {/* 🚀 Top Brand Navigation Bar */}
+      <header className="consumer-nav">
+        <div className="brand-group">
+          <Sparkles size={24} className="brand-glow-icon" />
+          <div>
+            <h1 className="brand-name">Hamara Rozgar</h1>
+            <p className="brand-tagline">AI-Powered Proximity Service Orchestrator</p>
+          </div>
         </div>
-        
-        <div className="panel-body">
-          {/* Supabase Connection Status Badge */}
-          <div style={{ marginBottom: "15px" }}>
-            <span className={`supabase-status-badge ${supabaseConnected ? "connected" : "offline"}`}>
-              <span className={`status-indicator-dot ${supabaseConnected ? "green" : "amber"}`}></span>
-              {supabaseConnected ? "Supabase Connected" : "Supabase Offline Fallback"}
+
+        <div className="nav-actions">
+          {currentView !== "history" ? (
+            <button className="nav-btn-history" onClick={() => setCurrentView("history")}>
+              <History size={16} />
+              <span>My Bookings</span>
+            </button>
+          ) : (
+            <button className="nav-btn-history" onClick={() => setCurrentView("home")}>
+              <Compass size={16} />
+              <span>Back Home</span>
+            </button>
+          )}
+
+          {/* Sync Connection Badge */}
+          <span className={`sync-badge ${supabaseConnected ? "synced" : "local"}`} title={supabaseConnected ? "Supabase Cloud persistence online" : "Using browser LocalStorage backup"}>
+            <span className="sync-badge-dot"></span>
+            {supabaseConnected ? "Supabase Sync" : "Local Ledger"}
+          </span>
+        </div>
+      </header>
+
+      {/* 📍 Proximity Location Hub Selector */}
+      <section className="location-bar">
+        <div className="location-info-trigger" onClick={() => setIsLocationMenuOpen(!isLocationMenuOpen)}>
+          <MapPin size={18} className="location-marker-icon" />
+          <div className="location-info-text">
+            <span className="location-label-title">
+              {locationMode === "GPS" ? "Direct GPS Proximity Lock" : "Custom Society Landmark"}
             </span>
+            <span className="location-label-value">{resolvedLocationName}</span>
           </div>
+          <Settings size={14} className={`location-cog-icon ${isLocationMenuOpen ? "rotate" : ""}`} />
+        </div>
 
-          {/* Credentials Setup Card */}
-          <div className="card custom-settings-panel">
-            <h4 style={{ fontSize: "0.85rem", color: "var(--accent-purple)", display: "flex", gap: "6px", alignItems: "center" }}>
-              <Settings size={14} /> Self-Hosted Credentials
-            </h4>
-            
-            <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginTop: "8px" }}>
-              <div className="credential-input-group">
-                <label style={{ fontSize: "0.68rem", color: "var(--text-secondary)" }}>NLP Intent Engine</label>
-                <select 
-                  className="settings-input" 
-                  value={nlpEngine}
-                  onChange={(e) => setNlpEngine(e.target.value)}
-                  style={{ background: "rgba(17, 24, 39, 0.7)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "4px", color: "#fff", padding: "6px 8px", width: "100%", outline: "none" }}
-                >
-                  <option value="regex">Local Slang Parser (Offline Fallback)</option>
-                  <option value="ollama">Ollama (Self-Hosted Local LLM)</option>
-                  <option value="groq">Groq Cloud (Free Open LLM)</option>
-                  <option value="github">GitHub Models API (High-Fidelity)</option>
-                </select>
-              </div>
-
-              {nlpEngine === "ollama" && (
-                <>
-                  <div className="credential-input-group">
-                    <label style={{ fontSize: "0.68rem", color: "var(--text-secondary)" }}>Ollama Server URL</label>
-                    <input 
-                      type="text" 
-                      className="settings-input" 
-                      value={ollamaUrl}
-                      onChange={(e) => setOllamaUrl(e.target.value)}
-                    />
-                  </div>
-                  <div className="credential-input-group">
-                    <label style={{ fontSize: "0.68rem", color: "var(--text-secondary)" }}>Ollama Model Name</label>
-                    <input 
-                      type="text" 
-                      className="settings-input" 
-                      value={ollamaModel}
-                      onChange={(e) => setOllamaModel(e.target.value)}
-                    />
-                  </div>
-                </>
-              )}
-
-              {nlpEngine === "groq" && (
-                <div className="credential-input-group">
-                  <label style={{ fontSize: "0.68rem", color: "var(--text-secondary)" }}>Groq Developer API Key</label>
-                  <input 
-                    type="password" 
-                    className="settings-input" 
-                    placeholder="gsk_..."
-                    value={groqApiKey}
-                    onChange={(e) => setGroqApiKey(e.target.value)}
-                  />
-                </div>
-              )}
-
-              {nlpEngine === "github" && (
-                <>
-                  <div className="credential-input-group">
-                    <label style={{ fontSize: "0.68rem", color: "var(--text-secondary)" }}>GitHub Personal Access Token</label>
-                    <input 
-                      type="password" 
-                      className="settings-input" 
-                      placeholder="ghp_..."
-                      value={githubToken}
-                      onChange={(e) => setGithubToken(e.target.value)}
-                    />
-                  </div>
-                  <div className="credential-input-group">
-                    <label style={{ fontSize: "0.68rem", color: "var(--text-secondary)" }}>GitHub Model Selection</label>
-                    <input 
-                      type="text" 
-                      className="settings-input" 
-                      placeholder="e.g. gpt-4o, Llama-3-70b"
-                      value={githubModel}
-                      onChange={(e) => setGithubModel(e.target.value)}
-                    />
-                  </div>
-                </>
-              )}
-
-              <div style={{ borderTop: "1px dashed var(--border-color)", margin: "6px 0" }}></div>
-
-              <div className="credential-input-group">
-                <label style={{ fontSize: "0.68rem", color: "var(--text-secondary)" }}>Supabase Project URL</label>
-                <input 
-                  type="text" 
-                  className="settings-input" 
-                  placeholder="https://xyz.supabase.co"
-                  value={supabaseUrl}
-                  onChange={(e) => setSupabaseUrl(e.target.value)}
-                />
-              </div>
-
-              <div className="credential-input-group">
-                <label style={{ fontSize: "0.68rem", color: "var(--text-secondary)" }}>Supabase Anon / Service Key</label>
-                <input 
-                  type="password" 
-                  className="settings-input" 
-                  placeholder="eyJhbGciOi..."
-                  value={supabaseKey}
-                  onChange={(e) => setSupabaseKey(e.target.value)}
-                />
-              </div>
-
-              <div className="credential-input-group">
-                <label style={{ fontSize: "0.68rem", color: "var(--text-secondary)" }}>Geocoding & Places Engine</label>
-                <select 
-                  className="settings-input" 
-                  value={mapEngine}
-                  onChange={(e) => setMapEngine(e.target.value)}
-                  style={{ background: "rgba(17, 24, 39, 0.7)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "4px", color: "#fff", padding: "6px 8px", width: "100%", outline: "none" }}
-                >
-                  <option value="osm">OpenStreetMap Nominatim (Free & Dynamic)</option>
-                  <option value="offline">Local Dictionary Baseline (Offline)</option>
-                </select>
-              </div>
+        {/* Floating Modal for Location Picker */}
+        {isLocationMenuOpen && (
+          <div className="location-overlay-modal">
+            <div className="location-modal-header">
+              <h3>Configure Service Location</h3>
+              <button className="close-modal-btn" onClick={() => setIsLocationMenuOpen(false)}>
+                <X size={16} />
+              </button>
             </div>
-          </div>
+            
+            <div className="location-modal-tabs">
+              <button 
+                className={`loc-tab ${locationMode === "GPS" ? "active" : ""}`}
+                onClick={() => handleToggleLocationMode("GPS")}
+              >
+                Use GPS Coordinates
+              </button>
+              <button 
+                className={`loc-tab ${locationMode === "Custom" ? "active" : ""}`}
+                onClick={() => handleToggleLocationMode("Custom")}
+              >
+                Custom Address Geocode
+              </button>
+            </div>
 
-          {/* Provider Workload Balancing Grid */}
-          <h4 style={{ fontSize: "0.9rem", color: "#fff", marginBottom: "10px", marginTop: "15px" }}>Provider Workload & Proximity Matrix</h4>
-          <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-            {matchedProviders.length > 0 ? (
-              matchedProviders.map((p) => (
-                <div key={p.id} className="card" style={{ padding: "12px", marginBottom: "0", background: p.id === selectedProvider?.id ? "rgba(139, 92, 246, 0.08)" : "rgba(255,255,255,0.01)" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.8rem", fontWeight: "600" }}>
-                    <span>{p.name}</span>
-                    <span style={{ color: "var(--accent-blue)" }}>{p.matchScore}% Match</span>
-                  </div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", fontSize: "0.7rem", color: "var(--text-secondary)", marginTop: "6px" }}>
-                    <span>📍 {p.calculatedDistance} km ({p.location})</span>
-                    <span>⭐ {p.rating}</span>
-                    <span>⏱️ {p.reliabilityScore}% On-Time</span>
-                  </div>
-                  {p.cancellationRate > 3 && (
-                    <div style={{ fontSize: "0.62rem", color: "#ef4444", marginTop: "4px", display: "flex", alignItems: "center", gap: "4px" }}>
-                      <AlertTriangle size={10} /> High cancellation rate ({p.cancellationRate}%)
+            <div className="location-modal-body">
+              {locationMode === "GPS" ? (
+                <div className="gps-modal-content">
+                  {gpsCoords ? (
+                    <div className="coords-display">
+                      <div className="coords-line"><span>Latitude:</span> <span>{gpsCoords.latitude.toFixed(6)}</span></div>
+                      <div className="coords-line"><span>Longitude:</span> <span>{gpsCoords.longitude.toFixed(6)}</span></div>
+                      <div className="gps-status-ok">✔ direct GPS satellite lock active</div>
+                    </div>
+                  ) : (
+                    <div className="gps-modal-fetch">
+                      <p>Pending live browser location permission...</p>
+                      <button className="modal-action-btn" onClick={() => triggerGpsFetch()}>
+                        Request GPS Satellite Access
+                      </button>
                     </div>
                   )}
                 </div>
-              ))
-            ) : (
-              <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", textAlign: "center", padding: "20px", background: "rgba(255,255,255,0.01)", borderRadius: "8px", border: "1px dashed var(--border-color)" }}>
-                Enter user query to scan and balance provider workload.
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* 2. Middle Panel: Native Fullscreen Active Workspace (Chat and Transaction Ledger Tabs) */}
-      <div className="workspace-section">
-        {/* Navigation Tabs */}
-        <div className="tab-nav-container">
-          <button 
-            className={`tab-nav-btn ${activeTab === "chat" ? "active" : ""}`}
-            onClick={() => setActiveTab("chat")}
-          >
-            <Sparkles size={14} style={{ display: "inline-block", marginRight: "6px", verticalAlign: "middle" }} />
-            Active Workspace (Chat)
-          </button>
-          <button 
-            className={`tab-nav-btn ${activeTab === "ledger" ? "active" : ""}`}
-            onClick={() => setActiveTab("ledger")}
-          >
-            <History size={14} style={{ display: "inline-block", marginRight: "6px", verticalAlign: "middle" }} />
-            Past Transactions Ledger
-          </button>
-        </div>
-
-        {/* Tab Content 1: Chat Interaction Flow */}
-        {activeTab === "chat" && (
-          <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
-            {/* Branding Header */}
-            <div className="app-header">
-              <Sparkles size={22} color="#8b5cf6" />
-              <div className="app-title-group">
-                <div className="app-title">Hamara-Rozgar Dashboard</div>
-                <div className="app-subtitle">Informal Marketplace Multi-Agent System</div>
-              </div>
-              <ShieldCheck size={22} color="var(--accent-green)" />
-            </div>
-
-            {/* Proximity Location Hub Banner */}
-            <div className="location-hub-banner">
-              <div className="location-hub-main" onClick={() => setIsLocationMenuOpen(!isLocationMenuOpen)}>
-                <div className="location-status-group">
-                  <span className={`pulse-dot ${locationMode === "GPS" ? "gps" : "custom"}`}></span>
-                  <div className="location-info">
-                    <span className="location-mode-label">
-                      {locationMode === "GPS" ? "📍 Live Proximity GPS Lock" : "📍 Custom Landmark Override"}
-                    </span>
-                    <span className="location-value-text">
-                      {locationMode === "GPS" 
-                        ? (gpsCoords ? `${gpsCoords.latitude.toFixed(5)}, ${gpsCoords.longitude.toFixed(5)}` : "Fetching GPS from device...") 
-                        : (customLocationName || "Resolve custom sector/society string...")}
-                    </span>
+              ) : (
+                <div className="custom-modal-content">
+                  <p className="modal-helper-text">Enter any sector, colony, or society name. OpenStreetMap Nominatim will geocode coordinates dynamically.</p>
+                  <div className="custom-input-box">
+                    <input 
+                      type="text" 
+                      placeholder="E.g. Sector G-11, Islamabad" 
+                      value={customLocationName}
+                      onChange={(e) => setCustomLocationName(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && handleResolveCustomLocation()}
+                    />
+                    <button className="modal-action-btn" onClick={handleResolveCustomLocation}>
+                      Resolve
+                    </button>
                   </div>
                 </div>
-                <button className="location-expand-btn">
-                  <Settings size={14} className={isLocationMenuOpen ? "rotate-90" : ""} />
+              )}
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* 🚀 MAIN CUSTOMER VIEW STATE CONTROLLER */}
+      <main className="consumer-canvas">
+        
+        {/* VIEW 1: HOME PORTAL (REQUEST SERVICES) */}
+        {currentView === "home" && (
+          <div className="view-fade-in">
+            {/* Consumer Hero Greeting */}
+            <div className="consumer-hero">
+              <h2>Aapko kya khidmat chahiye?</h2>
+              <p>Type in Urdu, Roman Urdu, or English. Our AI Multi-Agent system will immediately parse your intent, geocode coordinates, and dispatch a vetted professional near you.</p>
+            </div>
+
+            {/* Quick Action Category Cards */}
+            <div className="categories-grid">
+              {[
+                { key: "ac", label: "AC & Cooling Repair", icon: Sparkles, desc: "Sajid AC Repairs & candidates", suggestion: "yaar AC bilkul thanda nhi kar rha G-13 me" },
+                { key: "plumbing", label: "Plumbing & Leaks", icon: Briefcase, desc: "Tariq Plumbers & specialists", suggestion: "kitchen me paani beh rha hai urgent G-11 me" },
+                { key: "electrical", label: "Electrician Services", icon: DollarSign, desc: "Amjad Electricians & registry", suggestion: "short circuit ho gya hai socket me urgent G-13 me" },
+                { key: "cleaning", label: "Home Deep Cleaning", icon: Star, desc: "Direct registry cleaning partners", suggestion: "ghar ki safai krwani hai urgent" },
+                { key: "painting", label: "Professional Painting", icon: Calendar, desc: "Home paint and touch-ups", suggestion: "kamre ka rang kharab hai paint krwana hai" }
+              ].map((cat) => (
+                <button 
+                  key={cat.key} 
+                  className={`category-card ${activeCategory === cat.key ? "selected" : ""}`}
+                  onClick={() => handleQuickAction(cat.key, cat.suggestion)}
+                >
+                  <div className="cat-icon-container">
+                    <cat.icon size={22} />
+                  </div>
+                  <div className="cat-details">
+                    <h3>{cat.label}</h3>
+                    <p>{cat.desc}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            {/* Prompt Search Panel */}
+            <div className="prompt-dispatch-card">
+              <div className="prompt-header-row">
+                <span className="bilingual-badge">Urdu / Roman Urdu / English</span>
+                <span className="prompt-label">Explain your request:</span>
+              </div>
+              
+              <div className="prompt-input-wrapper">
+                <textarea 
+                  className="prompt-textarea"
+                  placeholder="E.g., 'yaar AC thanda nahi kar raha urgent Islamabad sector G-13 me' or 'Plumber urgent kitchen leakage G-11'..."
+                  value={userInput}
+                  onChange={(e) => setUserInput(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), handleRequestSubmit(userInput))}
+                />
+                <button 
+                  className="dispatch-glow-btn"
+                  onClick={() => handleRequestSubmit(userInput)}
+                  disabled={!userInput.trim()}
+                >
+                  <Send size={18} />
+                  <span>Find Specialist</span>
                 </button>
               </div>
 
-              {/* Collapsible Location Selector Menu */}
-              {isLocationMenuOpen && (
-                <div className="location-menu-panel">
-                  <div className="location-menu-tabs">
+              {/* Slang suggestion list below */}
+              <div className="slang-tips-bar">
+                <span className="tips-label">Suggestions:</span>
+                <div className="chips-scroller">
+                  {sampleRequests.map((req, idx) => (
                     <button 
-                      className={`location-tab-btn ${locationMode === "GPS" ? "active" : ""}`}
-                      onClick={() => handleToggleLocationMode("GPS")}
+                      key={idx} 
+                      className="slang-chip"
+                      onClick={() => handleQuickAction(null, req.text)}
                     >
-                      GPS Device Lock
+                      💬 "{req.text.length > 40 ? req.text.substring(0, 40) + "..." : req.text}"
                     </button>
-                    <button 
-                      className={`location-tab-btn ${locationMode === "Custom" ? "active" : ""}`}
-                      onClick={() => handleToggleLocationMode("Custom")}
-                    >
-                      Landmark Geocode
-                    </button>
-                  </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
-                  {locationMode === "GPS" ? (
-                    <div className="location-tab-content">
-                      <div className="coords-display-box">
-                        {gpsCoords ? (
-                          <>
-                            <div className="coords-row"><span>Browser Latitude:</span> <span>{gpsCoords.latitude.toFixed(6)}</span></div>
-                            <div className="coords-row"><span>Browser Longitude:</span> <span>{gpsCoords.longitude.toFixed(6)}</span></div>
-                            <span className="location-badge success">Direct GPS coordinates locked</span>
-                          </>
-                        ) : (
-                          <div style={{ textAlign: "center", color: "var(--text-muted)", fontSize: "0.75rem" }}>
-                            Live browser Geolocation blocked or pending.
-                            <button className="text-btn" onClick={() => triggerGpsFetch()} style={{ display: "block", margin: "6px auto 0 auto" }}>
-                              🔄 Re-request Device GPS
-                            </button>
-                          </div>
-                        )}
+        {/* VIEW 2: ACTIVE MATCHING ORBIT SPINNER & CHRONOLOGICAL TIMELINE */}
+        {currentView === "matching" && (
+          <div className="view-fade-in matching-viewport">
+            
+            {/* Spinning Radar Overlay */}
+            {!isMatchingComplete ? (
+              <div className="matching-radar-container">
+                <div className="matching-radar-pulse"></div>
+                <div className="radar-circle">
+                  <RefreshCw size={36} className="radar-icon-spin" />
+                </div>
+                <h2>AI Orchestrator Matching...</h2>
+                <p>Orchestrating AI agents, geocoding landmarks, and scanning candidate workloads.</p>
+              </div>
+            ) : (
+              <div className="matching-result-card-container">
+                {selectedProvider ? (
+                  <div className="matched-result-card card-glow-purple">
+                    <div className="matched-result-header">
+                      <span className="highlight-tag">Best Match Found</span>
+                      <h3>Specialist Reserved for You!</h3>
+                    </div>
+
+                    <div className="provider-match-profile">
+                      <div className="provider-match-avatar">
+                        <User size={32} />
+                      </div>
+                      <div className="provider-match-info">
+                        <h4>{selectedProvider.name}</h4>
+                        <span className="provider-match-rating">★ {selectedProvider.rating} rating</span>
+                        <div className="provider-match-metrics">
+                          <span>📍 {selectedProvider.calculatedDistance} km away ({selectedProvider.location})</span>
+                          <span>⏱️ {selectedProvider.reliabilityScore}% reliability score</span>
+                        </div>
                       </div>
                     </div>
-                  ) : (
-                    <div className="location-tab-content">
-                      <div className="custom-input-group">
-                        <input 
-                          type="text" 
-                          className="custom-loc-input" 
-                          placeholder="E.g. sector 4 airport society, G-11, F-10"
-                          value={customLocationName}
-                          onChange={(e) => setCustomLocationName(e.target.value)}
-                          onKeyDown={(e) => e.key === "Enter" && handleResolveCustomLocation()}
-                        />
-                        <button 
-                          className="action-btn-sm" 
-                          onClick={handleResolveCustomLocation}
-                          disabled={!customLocationName.trim()}
-                        >
-                          Geocode
-                        </button>
+
+                    {/* Cost Summary Box */}
+                    {priceQuote && (
+                      <div className="pricing-match-box">
+                        <div className="price-row">
+                          <span>Fair Fare Pricing:</span>
+                          <span className="price-value">{priceQuote.totalPrice} PKR</span>
+                        </div>
+                        <div className="price-breakdown-mini">
+                          Base rate: {priceQuote.basePrice} PKR | Travel: {priceQuote.travelFee} PKR {priceQuote.surgePrice > 0 && `| Surge: +${priceQuote.surgePrice} PKR`} {priceQuote.loyaltyDiscount > 0 && `| Loyalty: -${priceQuote.loyaltyDiscount} PKR`}
+                        </div>
                       </div>
-                      
-                      {customCoords && (
-                        <div className="coords-display-box" style={{ marginTop: "8px" }}>
-                          <div className="coords-row"><span>OSM Resolved Lat:</span> <span>{customCoords.latitude.toFixed(6)}</span></div>
-                          <div className="coords-row"><span>OSM Resolved Lng:</span> <span>{customCoords.longitude.toFixed(6)}</span></div>
-                          <span className="location-badge custom">📍 Geocoded from OpenStreetMap</span>
+                    )}
+
+                    <div className="match-actions-row">
+                      <button className="confirm-dispatch-btn" onClick={handleConfirmBooking}>
+                        <Check size={18} />
+                        <span>Confirm & Dispatch Provider</span>
+                      </button>
+                      <button className="cancel-match-btn" onClick={() => setCurrentView("home")}>
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="matched-failed-card">
+                    <AlertTriangle size={32} color="#ef4444" />
+                    <h3>No Nearby Specialist Found</h3>
+                    <p>Sorry, we could not find any active provider matches in your proximity center. Try searching a different society landmark or override the location.</p>
+                    <button className="modal-action-btn" onClick={() => setCurrentView("home")}>
+                      Modify Search
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 6-Stage Agentic Timeline Tree */}
+            <div className="timeline-section-card">
+              <h3 className="section-title">
+                <Sparkles size={16} color="var(--accent-purple)" />
+                Agentic Orchestration Timeline
+              </h3>
+              
+              <div className="timeline-container">
+                {[
+                  { title: "Intent Parsing & Conversational Semantics", index: 0, desc: "Understanding bilingual Urdu slang triggers" },
+                  { title: "Proximity Location Geocoding", index: 1, desc: "OpenStreetMap Nominatim address coordinate mapping" },
+                  { title: "Registry Scan & Workload Balancing", index: 2, desc: "6-factor algorithm candidate utility computation" },
+                  { title: "Dynamic Quote Pricing Engine", index: 3, desc: "Formulating transparent quote & applying loyalty benefits" },
+                  { title: "Secure Persistent Ledger Transaction", index: 4, desc: "Recording secure transaction parameters to database" },
+                  { title: "Real-time Tracking & Dispute Escalations", index: 5, desc: "Dispatched tracking and automated anomaly audits" }
+                ].map((stage) => {
+                  const stageStatus = tasks[stage.index]?.status || "pending";
+                  const stageTraces = getStageTraces(stage.index);
+                  const isOpen = openTimelineAccordions[stage.index];
+                  
+                  return (
+                    <div 
+                      key={stage.index} 
+                      className={`timeline-node ${
+                        stageStatus === "in-progress" ? "active-stage" : 
+                        stageStatus === "completed" ? "completed-stage" : ""
+                      }`}
+                    >
+                      <div className="timeline-icon-wrapper">
+                        <span className={`timeline-dot ${stageStatus}`}></span>
+                      </div>
+
+                      <div className="timeline-node-header" onClick={() => toggleAccordion(stage.index)}>
+                        <div className="timeline-node-title">
+                          <span className={stageStatus === "completed" ? "completed" : ""}>
+                            {stage.title}
+                          </span>
+                        </div>
+                        
+                        <span className={`timeline-badge-status ${stageStatus}`}>
+                          {stageStatus}
+                        </span>
+                        
+                        {stageTraces.length > 0 ? (
+                          isOpen ? <ChevronUp size={14} color="var(--text-muted)" /> : <ChevronDown size={14} color="var(--text-muted)" />
+                        ) : null}
+                      </div>
+
+                      <div className="timeline-node-subdesc">{stage.desc}</div>
+
+                      {/* Display dynamically fetched results inline for the customer to see! */}
+                      {stageStatus === "completed" && stage.index === 0 && activeIntent && (
+                        <div className="timeline-extracted-inline">
+                          🔍 Detected Category: <strong>{activeIntent.service}</strong> {activeIntent.urgency && <span className="urgency-pill">Urgent</span>}
+                        </div>
+                      )}
+
+                      {stageStatus === "completed" && stage.index === 1 && activeIntent && (
+                        <div className="timeline-extracted-inline">
+                          📍 Located Sector: <strong>{activeIntent.location}</strong>
+                        </div>
+                      )}
+
+                      {stageStatus === "completed" && stage.index === 2 && selectedProvider && (
+                        <div className="timeline-extracted-inline">
+                          👤 Balanced Partner: <strong>{selectedProvider.name}</strong> ({selectedProvider.matchScore}% Match Score)
+                        </div>
+                      )}
+
+                      {stageStatus === "completed" && stage.index === 3 && priceQuote && (
+                        <div className="timeline-extracted-inline">
+                          💰 Billing fare: <strong>{priceQuote.totalPrice} PKR</strong>
+                        </div>
+                      )}
+
+                      {isOpen && stageTraces.length > 0 && (
+                        <div className="timeline-node-body">
+                          <div className="reasoning-drawer">
+                            {stageTraces.map((trace, idx) => (
+                              <div key={idx} className="reasoning-step-item">
+                                <div className="reasoning-meta">
+                                  <span className="reasoning-agent-badge">{trace.agent}</span>
+                                  <span>{trace.timestamp}</span>
+                                </div>
+                                <div className="reasoning-action">{trace.action}</div>
+                                <div className="reasoning-details">{trace.details}</div>
+                                {trace.reasoning && (
+                                  <div className="reasoning-thoughts">
+                                    💡 thoughts: {trace.reasoning}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
                         </div>
                       )}
                     </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Scrollable chat interaction log */}
-            <div className="chat-area">
-              {chatMessages.map((msg, i) => (
-                <div key={i} className={`chat-bubble ${msg.sender}`}>
-                  <div style={{ whiteSpace: "pre-line" }}>{msg.text}</div>
-                  
-                  {/* Confirm Dispatch button inside message context */}
-                  {msg.actionable && !activeBooking && (
-                    <button 
-                      onClick={handleConfirmBooking}
-                      style={{
-                        marginTop: "12px",
-                        padding: "10px 20px",
-                        background: "#fff",
-                        color: "var(--bg-primary)",
-                        border: "none",
-                        borderRadius: "24px",
-                        fontSize: "0.85rem",
-                        fontWeight: "600",
-                        cursor: "pointer",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        gap: "6px",
-                        width: "100%",
-                        transition: "all 0.2s"
-                      }}
-                      onMouseOver={(e) => e.target.style.transform = "translateY(-1px)"}
-                      onMouseOut={(e) => e.target.style.transform = "none"}
-                    >
-                      <Check size={16} /> Confirm Booking & Sync to Ledger
-                    </button>
-                  )}
-                </div>
-              ))}
-
-              {/* Active Booking Tracker Dashboard Widget */}
-              {activeBooking && (
-                <div className="card" style={{ padding: "16px", background: "rgba(0,0,0,0.3)", borderRadius: "14px", border: "1px solid rgba(139, 92, 246, 0.2)" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.85rem", fontWeight: "600", borderBottom: "1px solid var(--border-color)", paddingBottom: "8px", marginBottom: "10px" }}>
-                    <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                      <Navigation size={14} className="pulse-dot gps" /> Active Status: <span style={{ color: "var(--accent-blue)" }}>{trackingStatus}</span>
-                    </span>
-                    <span style={{ color: "var(--accent-green)" }}>{activeBooking.pricing.totalPrice} PKR</span>
-                  </div>
-                  
-                  {/* Route Mapping Simulation */}
-                  <div className="map-view" style={{ height: "140px" }}>
-                    <div className="map-grid"></div>
-                    <div className="map-pin"></div>
-                    <div className="map-pin provider"></div>
-                    <div className="map-route"></div>
-                  </div>
-
-                  <div style={{ display: "flex", flexDirection: "column", gap: "4px", fontSize: "0.75rem", color: "var(--text-secondary)", marginTop: "10px" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between" }}>
-                      <span>Sector Proximity: <strong>{activeBooking.location}</strong></span>
-                      <span>Dispatch Partner: <strong>{selectedProvider?.name}</strong></span>
-                    </div>
-                    {activeBooking.locationCoords && (
-                      <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text-muted)", fontSize: "0.68rem", marginTop: "4px" }}>
-                        <span>Coords: {activeBooking.locationCoords.latitude.toFixed(5)}, {activeBooking.locationCoords.longitude.toFixed(5)}</span>
-                        <span>Travel Proximity: {selectedProvider?.calculatedDistance} km</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* simulated dispute options */}
-              {activeBooking && trackingStatus !== "Completed" && (
-                <div style={{ display: "flex", flexDirection: "column", gap: "8px", background: "rgba(255, 255, 255, 0.02)", padding: "12px", borderRadius: "10px", border: "1px solid var(--border-color)" }}>
-                  <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", fontWeight: "600", textTransform: "uppercase", letterSpacing: "0.03em" }}>Simulate Edge Cases & Dispute Audits</span>
-                  <div style={{ display: "flex", gap: "8px" }}>
-                    <button onClick={() => triggerDisputeScenario("Provider Cancelled")} style={{ flex: 1, padding: "8px 4px", background: "rgba(239, 68, 68, 0.1)", border: "1px solid rgba(239, 68, 68, 0.3)", borderRadius: "8px", fontSize: "0.72rem", color: "#ef4444", fontWeight: "600", cursor: "pointer", transition: "all 0.2s" }}>
-                      Partner Cancel Reschedule
-                    </button>
-                    <button onClick={() => triggerDisputeScenario("Price Disagreement")} style={{ flex: 1, padding: "8px 4px", background: "rgba(245, 158, 11, 0.1)", border: "1px solid rgba(245, 158, 11, 0.3)", borderRadius: "8px", fontSize: "0.72rem", color: "#f59e0b", fontWeight: "600", cursor: "pointer", transition: "all 0.2s" }}>
-                      10% Price Dispute
-                    </button>
-                    <button onClick={() => triggerDisputeScenario("Quality Complaint")} style={{ flex: 1, padding: "8px 4px", background: "rgba(139, 92, 246, 0.1)", border: "1px solid rgba(139, 92, 246, 0.3)", borderRadius: "8px", fontSize: "0.72rem", color: "#8b5cf6", fontWeight: "600", cursor: "pointer", transition: "all 0.2s" }}>
-                      Escalate Quality Issue
-                    </button>
-                  </div>
-                </div>
-              )}
-              
-              <div ref={chatEndRef} />
-            </div>
-
-            {/* Quick Testing Suggestions Bar */}
-            <div style={{ padding: "8px 20px", background: "var(--bg-secondary)", borderTop: "1px solid var(--border-color)" }}>
-              <div className="chip-group" style={{ margin: "2px 0 6px 0" }}>
-                {sampleRequests.map((req, i) => (
-                  <span 
-                    key={i} 
-                    className="chip"
-                    onClick={() => handleRequestSubmit(req.text)}
-                  >
-                    💬 {req.text.length > 32 ? req.text.substring(0, 32) + "..." : req.text}
-                  </span>
-                ))}
+                  );
+                })}
               </div>
-            </div>
-
-            {/* Bottom Input Area */}
-            <div className="chat-input-bar">
-              <input 
-                type="text" 
-                className="chat-input" 
-                placeholder="Ask in Roman Urdu or English (e.g., 'AC technician urgently in sector 4 airport society')"
-                value={userInput}
-                onChange={(e) => setUserInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleRequestSubmit(userInput)}
-              />
-              <button className="round-btn" onClick={() => handleRequestSubmit(userInput)}>
-                <Send size={18} />
-              </button>
             </div>
           </div>
         )}
 
-        {/* Tab Content 2: Past Transactions Ledger Database Grid */}
-        {activeTab === "ledger" && (
-          <div className="ledger-container">
-            <div className="ledger-header">
-              <div>
-                <h3 style={{ fontSize: "1.1rem", display: "flex", alignItems: "center", gap: "8px" }}>
-                  <History size={18} color="var(--accent-purple)" />
-                  Transaction Ledger Database
-                </h3>
-                <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-                  Dynamic persistent ledger synced to Supabase Cloud or offline web storage
-                </span>
-              </div>
-              <button 
-                className="action-btn-sm" 
-                onClick={() => loadBookings()}
-                style={{ display: "flex", alignItems: "center", gap: "6px" }}
-              >
-                🔄 Refresh Ledger
-              </button>
-            </div>
-
-            <div className="ledger-grid">
-              {pastBookings.length > 0 ? (
-                pastBookings.map((b) => (
-                  <div key={b.id} className="ledger-card">
-                    <div className="ledger-card-row" style={{ borderBottom: "1px dashed var(--border-color)", paddingBottom: "6px" }}>
-                      <span className="ledger-value mono" style={{ color: "var(--accent-purple)", fontWeight: "700" }}>{b.id}</span>
-                      <span className="ledger-value" style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>{b.timestamp}</span>
-                    </div>
-
-                    <div className="ledger-card-row">
-                      <span className="ledger-label">Service Type:</span>
-                      <span className="ledger-value">{b.service}</span>
-                    </div>
-
-                    <div className="ledger-card-row">
-                      <span className="ledger-label">Provider Name:</span>
-                      <span className="ledger-value">{b.providerName}</span>
-                    </div>
-
-                    <div className="ledger-card-row">
-                      <span className="ledger-label">Provider Contact:</span>
-                      <span className="ledger-value mono">{b.providerPhone}</span>
-                    </div>
-
-                    <div className="ledger-card-row">
-                      <span className="ledger-label">Target Location:</span>
-                      <span className="ledger-value">{b.location}</span>
-                    </div>
-
-                    <div className="ledger-card-row">
-                      <span className="ledger-label">Assigned Slot:</span>
-                      <span className="ledger-value">{b.timeSlot}</span>
-                    </div>
-
-                    <div className="ledger-card-row">
-                      <span className="ledger-label">Billing Amount:</span>
-                      <span className="ledger-value" style={{ color: "var(--accent-green)", fontWeight: "600" }}>
-                        {b.pricing?.totalPrice || b.pricing || "TBD"} PKR
-                      </span>
-                    </div>
-
-                    <div className="ledger-card-row" style={{ marginTop: "4px", borderTop: "1px solid var(--border-color)", paddingTop: "6px" }}>
-                      <span className="ledger-label">Status:</span>
-                      <span className={`badge ${
-                        b.status === "Completed" ? "active" : 
-                        b.status?.includes("Disputed") ? "error" : "pending"
-                      }`} style={{ fontSize: "0.62rem" }}>
-                        {b.status}
-                      </span>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div style={{ gridColumn: "1 / -1", textAlign: "center", padding: "40px", color: "var(--text-muted)", fontSize: "0.9rem" }}>
-                  <ShieldAlert size={36} style={{ margin: "0 auto 10px auto", opacity: 0.5 }} />
-                  No transaction ledger entries found. Perform your first service dispatch booking!
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* 3. Right Panel: Chronological Agentic Timeline Tree & Monospace Dev Console */}
-      <div className="panel trace-panel">
-        <div className="panel-header">
-          <h3 className="panel-title">
-            <Sparkles size={18} color="var(--accent-purple)" />
-            Operations & Reasoning
-          </h3>
-          <span className="badge" style={{ background: "rgba(139, 92, 246, 0.15)", color: "var(--accent-purple)" }}>Trace active</span>
-        </div>
-
-        <div className="panel-body" style={{ display: "flex", flexDirection: "column", gap: "20px", overflowY: "auto" }}>
-          {/* Chronological Agentic Stage-by-Stage Timeline Tree */}
-          <div>
-            <h4 style={{ fontSize: "0.85rem", color: "var(--accent-purple)", marginBottom: "10px", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-              Chronological agent execution tree
-            </h4>
+        {/* VIEW 3: DISPATCH TRACKER VIEW */}
+        {currentView === "active-booking" && activeBooking && (
+          <div className="view-fade-in dispatched-viewport">
             
-            <div className="timeline-container">
+            {/* Tracking Header */}
+            <div className="dispatched-header-card">
+              <div className="tracker-status-row">
+                <div className="pulse-dot gps"></div>
+                <h2>Status: <span className="status-highlight-text">{trackingStatus}</span></h2>
+              </div>
+              <p>Specialist has initialized transaction <strong>{activeBooking.id}</strong>. Follow active progress stepper below.</p>
+            </div>
+
+            {/* Stepper progress bar */}
+            <div className="progress-stepper">
               {[
-                { title: "Intent Parsing & Conversational Semantics", index: 0, desc: "Multilingual Roman Urdu/English intent unboxing" },
-                { title: "Proximity Location Geocoding", index: 1, desc: "OpenStreetMap Nominatim custom address coordinate mapping" },
-                { title: "Registry Scan & Workload Balancing", index: 2, desc: "6-factor operational matching algorithm utility computation" },
-                { title: "Dynamic Quote Pricing Engine", index: 3, desc: "Compute travel allowance surcharges & loyalty deductions" },
-                { title: "Secure Persistent Ledger Transaction", index: 4, desc: "Commit persistent transactional row to Supabase Cloud" },
-                { title: "Real-time Tracking & Dispute Escalations", index: 5, desc: "Monitor partner GPS signals and execute reschedule audits" }
-              ].map((stage) => {
-                const stageStatus = tasks[stage.index]?.status || "pending";
-                const stageTraces = getStageTraces(stage.index);
-                const isOpen = openTimelineAccordions[stage.index];
-                
+                { label: "Booked", activeKeys: ["Committed to Ledger", "Provider Booked", "Provider En-Route", "Work In Progress", "Completed"] },
+                { label: "En-Route", activeKeys: ["Provider En-Route", "Work In Progress", "Completed"] },
+                { label: "Arrived", activeKeys: ["Work In Progress", "Completed"] },
+                { label: "In Progress", activeKeys: ["Work In Progress", "Completed"] },
+                { label: "Completed", activeKeys: ["Completed"] }
+              ].map((step, idx) => {
+                const isActive = step.activeKeys.includes(trackingStatus);
                 return (
-                  <div 
-                    key={stage.index} 
-                    className={`timeline-node ${
-                      stageStatus === "in-progress" ? "active-stage" : 
-                      stageStatus === "completed" ? "completed-stage" : ""
-                    }`}
-                  >
-                    {/* Icon wrapper connector on the absolute tree line */}
-                    <div className="timeline-icon-wrapper">
-                      <span className={`timeline-dot ${stageStatus}`}></span>
+                  <div key={idx} className={`stepper-node ${isActive ? "active" : ""}`}>
+                    <div className="stepper-dot">
+                      {isActive ? "✔" : idx + 1}
                     </div>
-
-                    {/* Accordion Toggle Header */}
-                    <div className="timeline-node-header" onClick={() => toggleAccordion(stage.index)}>
-                      <div className="timeline-node-title">
-                        <span className={stageStatus === "completed" ? "completed" : ""}>
-                          {stage.title}
-                        </span>
-                      </div>
-                      
-                      <span className={`timeline-badge-status ${stageStatus}`}>
-                        {stageStatus}
-                      </span>
-                      
-                      {stageTraces.length > 0 ? (
-                        isOpen ? <ChevronUp size={14} color="var(--text-muted)" /> : <ChevronDown size={14} color="var(--text-muted)" />
-                      ) : null}
-                    </div>
-
-                    {/* Sub-description */}
-                    <div style={{ fontSize: "0.72rem", color: "var(--text-secondary)", paddingLeft: "0px", marginTop: "-2px" }}>
-                      {stage.desc}
-                    </div>
-
-                    {/* Accordion Reasoning Drawer body */}
-                    {isOpen && stageTraces.length > 0 && (
-                      <div className="timeline-node-body">
-                        <div className="reasoning-drawer">
-                          {stageTraces.map((trace, idx) => (
-                            <div key={idx} className="reasoning-step-item">
-                              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
-                                <span className="reasoning-agent-badge">{trace.agent}</span>
-                                <span style={{ color: "var(--text-muted)", fontSize: "0.62rem" }}>{trace.timestamp}</span>
-                              </div>
-                              <div style={{ color: "#fff", fontWeight: "600", fontSize: "0.72rem", marginBottom: "2px" }}>
-                                {trace.action}
-                              </div>
-                              <div style={{ color: "var(--text-secondary)", fontSize: "0.68rem" }}>
-                                {trace.details}
-                              </div>
-                              {trace.reasoning && (
-                                <div style={{ color: "#06b6d4", fontSize: "0.68rem", background: "rgba(6, 182, 212, 0.05)", borderLeft: "2px solid #06b6d4", padding: "4px 8px", margin: "6px 0 2px 0", fontStyle: "italic" }}>
-                                  💡 reasoning: {trace.reasoning}
-                                </div>
-                              )}
-                              {trace.tool && (
-                                <div style={{ fontSize: "0.62rem", color: "var(--accent-purple)", marginTop: "4px", fontWeight: "600" }}>
-                                  🛠️ tool_executed: `{trace.tool}`
-                                </div>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+                    <span>{step.label}</span>
                   </div>
                 );
               })}
             </div>
-          </div>
 
-          {/* Dev Shell Console Output */}
-          <div style={{ marginTop: "auto" }}>
-            <div className="terminal-header">
-              <div className="terminal-dots">
-                <span className="terminal-dot-ui red"></span>
-                <span className="terminal-dot-ui yellow"></span>
-                <span className="terminal-dot-ui green"></span>
-              </div>
-              <span>antigravity-agentic-orchestrator-shell</span>
+            {/* Simulated Live Radar Tracker Map */}
+            <div className="radar-map-widget">
+              <div className="radar-grid"></div>
+              <div className="radar-sweep"></div>
+              <div className="radar-pin client" title="You"></div>
+              <div className={`radar-pin provider ${trackingStatus === "Completed" ? "arrived" : "moving"}`} title={selectedProvider?.name}></div>
+              <span className="radar-signal-badge">GPS Signals Live</span>
             </div>
-            
-            <div className="terminal-console">
-              {traceLogs.length > 0 ? (
-                traceLogs.map((log, i) => (
-                  <div key={i} className="terminal-line">
-                    <span style={{ color: "var(--accent-purple)" }}>[{log.timestamp}]</span>{" "}
-                    <span style={{ color: "#10b981" }}>{log.agent}</span>:{" "}
-                    <span>{log.action}</span> - <span style={{ color: "var(--text-secondary)" }}>{log.details.substring(0, 100)}{log.details.length > 100 ? "..." : ""}</span>
+
+            {/* Dispatched Specialist Card */}
+            <div className="specialist-details-card">
+              <div className="specialist-header-row">
+                <div className="specialist-avatar">
+                  <User size={24} />
+                </div>
+                <div className="specialist-title">
+                  <h3>{selectedProvider?.name}</h3>
+                  <p>Certified {activeBooking.service}</p>
+                </div>
+                <a href={`tel:${selectedProvider?.providerPhone}`} className="specialist-call-btn">
+                  <Phone size={16} />
+                  <span>Call Partner</span>
+                </a>
+              </div>
+
+              <div className="specialist-info-grid">
+                <div className="specialist-info-item">
+                  <span className="info-label">Rating</span>
+                  <span className="info-value">★ {selectedProvider?.rating}</span>
+                </div>
+                <div className="specialist-info-item">
+                  <span className="info-label">Distance</span>
+                  <span className="info-value">{selectedProvider?.calculatedDistance} km</span>
+                </div>
+                <div className="specialist-info-item">
+                  <span className="info-label">Estimated Arrival</span>
+                  <span className="info-value">{trackingStatus === "Completed" ? "Arrived" : "~10 mins"}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Dynamic Receipt Billing Invoice */}
+            <div className="billing-invoice-card">
+              <h3>Digital Billing Invoice</h3>
+              <div className="invoice-divider"></div>
+              <div className="invoice-row">
+                <span>Base service fare</span>
+                <span>{activeBooking.pricing?.basePrice || activeBooking.pricing} PKR</span>
+              </div>
+              <div className="invoice-row">
+                <span>Travel proximity fee</span>
+                <span>{activeBooking.pricing?.travelFee || 0} PKR</span>
+              </div>
+              {activeBooking.pricing?.surgePrice > 0 && (
+                <div className="invoice-row surge">
+                  <span>Surge price factor</span>
+                  <span>+{activeBooking.pricing.surgePrice} PKR</span>
+                </div>
+              )}
+              {activeBooking.pricing?.loyaltyDiscount > 0 && (
+                <div className="invoice-row discount">
+                  <span>Loyalty discount benefits</span>
+                  <span>-{activeBooking.pricing.loyaltyDiscount} PKR</span>
+                </div>
+              )}
+              <div className="invoice-divider dashed"></div>
+              <div className="invoice-row total">
+                <span>Grand Total:</span>
+                <span>{activeBooking.pricing?.totalPrice || activeBooking.pricing} PKR</span>
+              </div>
+            </div>
+
+            {/* Anomaly / Dispute Simulator Controls */}
+            {trackingStatus !== "Completed" && (
+              <div className="dispute-simulation-panel">
+                <h4>Simulate Operational Anomaly & Self-Healing</h4>
+                <p>Test the DisputeAgent's ability to intercept cancellations, re-route providers, and adjust pricing instantly.</p>
+                
+                <div className="dispute-btns">
+                  <button 
+                    className="dispute-btn cancel-btn"
+                    onClick={() => triggerDisputeScenario("Provider Cancelled")}
+                  >
+                    <ShieldAlert size={14} />
+                    <span>Partner Cancels En-Route</span>
+                  </button>
+                  <button 
+                    className="dispute-btn discount-btn"
+                    onClick={() => triggerDisputeScenario("Price Disagreement")}
+                  >
+                    <DollarSign size={14} />
+                    <span>Trigger 10% Fare Dispute</span>
+                  </button>
+                  <button 
+                    className="dispute-btn complain-btn"
+                    onClick={() => triggerDisputeScenario("Quality Complaint")}
+                  >
+                    <AlertTriangle size={14} />
+                    <span>Escalate Quality Issue</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Active booking completion button */}
+            {trackingStatus === "Completed" && (
+              <div className="completion-action-bar">
+                <button className="confirm-complete-btn" onClick={handleCompleteJob}>
+                  Complete Service & Back Home
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* VIEW 4: PAST BOOKINGS LEDGER RECEIPTS */}
+        {currentView === "history" && (
+          <div className="view-fade-in history-viewport">
+            <div className="history-header">
+              <h2>My Bookings Ledger</h2>
+              <p>Review persistent historical receipts committed directly to Supabase Cloud or local web storage.</p>
+            </div>
+
+            <div className="receipts-scroller">
+              {pastBookings.length > 0 ? (
+                pastBookings.map((b) => (
+                  <div key={b.id} className="digital-receipt card-glow-purple">
+                    <div className="receipt-header">
+                      <div className="receipt-brand">Hamara Rozgar</div>
+                      <span className={`receipt-status-badge ${b.status === "Completed" ? "completed" : "pending"}`}>
+                        {b.status}
+                      </span>
+                    </div>
+
+                    <div className="receipt-barcode">
+                      <div className="barcode-stripe"></div>
+                      <div className="barcode-stripe"></div>
+                      <div className="barcode-stripe"></div>
+                      <span className="barcode-text">{b.id}</span>
+                    </div>
+
+                    <div className="receipt-body">
+                      <div className="receipt-item">
+                        <span className="r-label">Date & Time:</span>
+                        <span className="r-value">{b.timestamp}</span>
+                      </div>
+                      <div className="receipt-item">
+                        <span className="r-label">Service Type:</span>
+                        <span className="r-value">{b.service}</span>
+                      </div>
+                      <div className="receipt-item">
+                        <span className="r-label">Specialist Partner:</span>
+                        <span className="r-value">{b.providerName}</span>
+                      </div>
+                      <div className="receipt-item">
+                        <span className="r-label">Location colony:</span>
+                        <span className="r-value">{b.location}</span>
+                      </div>
+                      <div className="receipt-item border-top">
+                        <span className="r-label grand">Grand Total paid:</span>
+                        <span className="r-value grand">{b.pricing?.totalPrice || b.pricing || "TBD"} PKR</span>
+                      </div>
+                    </div>
                   </div>
                 ))
               ) : (
-                <div style={{ color: "var(--text-muted)", fontStyle: "italic" }}>
+                <div className="history-empty-card">
+                  <ShieldAlert size={42} className="empty-history-icon" />
+                  <h3>No booking receipts found</h3>
+                  <p>You haven't booked any service specialists yet. Head home to orchestrate your first dispatch!</p>
+                  <button className="modal-action-btn" onClick={() => setCurrentView("home")}>
+                    Book Service Now
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+      </main>
+
+      {/* ⭐ FEEDBACK RATING SUCCESS MODAL */}
+      {showFeedbackModal && (
+        <div className="feedback-modal-overlay">
+          <div className="feedback-modal-card card-glow-purple">
+            <div className="star-feedback-glow">
+              <Star size={42} fill="var(--accent-purple)" color="var(--accent-purple)" className="star-spin" />
+            </div>
+            <h2>Service Completed!</h2>
+            <p>Thank you for using Hamara Rozgar. Your specialist has been successfully compensated, and the transaction has been securely synchronized with the database ledger.</p>
+            
+            <div className="rating-select-box">
+              <span>Rate Sajid AC Repairs:</span>
+              <div className="stars-row">
+                {[1, 2, 3, 4, 5].map((star) => (
+                  <Star key={star} size={24} fill="#8b5cf6" color="#8b5cf6" style={{ cursor: "pointer" }} />
+                ))}
+              </div>
+            </div>
+
+            <button className="confirm-complete-btn" onClick={closeFeedbackAndReset}>
+              Return to Home Portal
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 💻 COLLAPSIBLE DEVELOPER SHELL TRACE & REASONING DRAWERS */}
+      <footer className={`dev-trace-panel ${showDeveloperTrace ? "expanded" : "collapsed"}`}>
+        <button 
+          className="dev-trace-toggle-btn"
+          onClick={() => setShowDeveloperTrace(!showDeveloperTrace)}
+        >
+          <Terminal size={14} />
+          <span>{showDeveloperTrace ? "Hide Developer Reasoning Trace Logs" : "Show Developer Reasoning Trace Logs"}</span>
+          <ChevronUp size={14} className={`dev-cog-expand ${showDeveloperTrace ? "rotate-180" : ""}`} />
+        </button>
+
+        {showDeveloperTrace && (
+          <div className="dev-trace-container">
+            <div className="dev-terminal-header">
+              <div className="dots-row">
+                <span className="dot red"></span>
+                <span className="dot yellow"></span>
+                <span className="dot green"></span>
+              </div>
+              <span className="term-title">antigravity-agentic-orchestrator-shell</span>
+              <button className="refresh-logs-btn" onClick={() => setTraceLogs([])}>Clear Console</button>
+            </div>
+
+            <div className="dev-terminal-console">
+              {traceLogs.length > 0 ? (
+                traceLogs.map((log, i) => (
+                  <div key={i} className="terminal-line">
+                    <span className="term-time">[{log.timestamp}]</span>{" "}
+                    <span className="term-agent">{log.agent}</span>:{" "}
+                    <span className="term-action">{log.action}</span> - <span className="term-details">{log.details}</span>
+                  </div>
+                ))
+              ) : (
+                <div className="terminal-waiting">
                   system: waiting for conversational natural language triggers...
                 </div>
               )}
               <div ref={terminalEndRef} />
             </div>
           </div>
-        </div>
-      </div>
+        )}
+      </footer>
     </div>
   );
 }
