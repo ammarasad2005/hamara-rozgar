@@ -504,22 +504,27 @@ async def extract_listing_data(
                 pass
 
             # ── Phone ─────────────────────────────────────────────────────────
-            # Google Maps renders phone as: <a href="tel:+923169625448">+92 316 9625448</a>
-            # This is the most reliable selector — standard HTML tel: protocol.
+            # Google Maps wraps each info row in div.rogA2c.
+            # The phone row contains: <a href="tel:+923169625448">+92 316 9625448</a>
             phone = None
             try:
-                # PRIMARY: tel: href link — always present when a phone is listed
-                phone_link = await page.query_selector('a[href^="tel:"]')
+                # PRIMARY: tel link inside the rogA2c info row container
+                phone_link = await page.query_selector('div.rogA2c a[href^="tel:"]')
                 if phone_link:
                     href = await phone_link.get_attribute("href") or ""
-                    raw_phone = href.replace("tel:", "").strip()
-                    phone = normalise_phone(raw_phone)
+                    phone = normalise_phone(href.replace("tel:", "").strip())
 
                 if not phone:
-                    # SECONDARY: button/element with data-item-id containing phone number
+                    # SECONDARY: any tel: link on the page (rogA2c may use a different class)
+                    phone_link = await page.query_selector('a[href^="tel:"]')
+                    if phone_link:
+                        href = await phone_link.get_attribute("href") or ""
+                        phone = normalise_phone(href.replace("tel:", "").strip())
+
+                if not phone:
+                    # TERTIARY: data-item-id containing phone:tel number
                     phone_el = await page.query_selector(
-                        'button[data-item-id*="phone:tel"], '
-                        '[data-item-id*="phone:tel"]'
+                        'button[data-item-id*="phone:tel"], [data-item-id*="phone:tel"]'
                     )
                     if phone_el:
                         item_id = await phone_el.get_attribute("data-item-id") or ""
@@ -527,7 +532,19 @@ async def extract_listing_data(
                             phone = normalise_phone(item_id.split("tel:")[-1])
 
                 if not phone:
-                    # TERTIARY: full-body Pakistani phone pattern regex
+                    # QUATERNARY: regex scan entire rogA2c blocks for Pakistani numbers
+                    containers = await page.query_selector_all("div.rogA2c")
+                    for container in containers:
+                        text = (await container.inner_text()).strip()
+                        matches = re.findall(
+                            r"(?:\+92|0)(?:3\d{2}|51|42|21)\s*[-.\s]?\d{3}\s*[-.\s]?\d{4}", text
+                        )
+                        if matches:
+                            phone = normalise_phone(matches[0])
+                            break
+
+                if not phone:
+                    # QUINARY: full body scan as last resort
                     all_text = await page.inner_text("body")
                     phone_matches = re.findall(
                         r"(?:\+92|0)(?:3\d{2}|51|42|21)\s*[-.\s]?\d{3}\s*[-.\s]?\d{4}", all_text
