@@ -39,18 +39,18 @@ export class ServiceOrchestrator {
     }
   }
 
-  // Multilingual Intent Understanding Agent (Local Slang / Ollama / Groq Engine)
+  // Multilingual Intent Understanding Agent (Local Slang / Ollama / Groq / GitHub Engine)
   async parseIntent(rawInput, nlpConfig = { mode: "regex" }, chatHistory = [], previousIntent = null) {
     this.logAgentTrace("IntentAgent", "Parsing User Request", `Input: "${rawInput}" (NLP Mode: ${nlpConfig.mode || "regex"})`, "Understanding natural language request across Urdu, Roman Urdu, and English.");
     
     // Start trace logs
     this.setWorkplan([
-      "Understand user intent and extract details",
-      "Discover and rank service providers via Maps & multi-factor weights",
-      "Calculate dynamic and fair price quote",
-      "Simulate booking calendar slot & send notifications",
-      "Monitor booking and execute follow-up checklists",
-      "Handle post-service feedback or potential disputes"
+      "Intent Understanding",
+      "Proximity Geocoding",
+      "Registry Scan & Matching",
+      "Dynamic Quote Pricing",
+      "Secure Ledger Transaction",
+      "Real-time Dispatch & Tracking"
     ]);
 
     this.updateTaskStatus(0, "in-progress");
@@ -140,7 +140,7 @@ Provide ONLY the raw JSON output. No markdown wrappers, no backticks, just valid
       }
     }
 
-    // 2. Groq Cloud free-tier Open LLM parser
+    // 2. Groq Cloud free-tier Open LLM parser with GitHub Models Failover
     if (nlpConfig.mode === "groq" && nlpConfig.groqKey) {
       this.logAgentTrace(
         "IntentAgent",
@@ -198,8 +198,61 @@ Provide ONLY the raw JSON output. No markdown wrappers, no backticks, just valid
           "IntentAgent",
           "Groq Parsing Failed",
           err.message,
+          nlpConfig.githubToken
+            ? "Groq API failed. Triggering automatic failover to high-fidelity GitHub Models API..."
+            : "Gracefully falling back to local high-fidelity regex slang parser.",
+          "Groq Fallover Check"
+        );
+
+        if (nlpConfig.githubToken) {
+          try {
+            const parsedIntent = await this.queryGitHubModels(
+              rawInput,
+              nlpConfig.githubToken,
+              nlpConfig.githubModel || "gpt-4o",
+              systemPrompt,
+              chatHistory
+            );
+            return this.sanitizeParsedIntent(parsedIntent, previousIntent, "GitHub Models (Failover)");
+          } catch (githubErr) {
+            this.logAgentTrace(
+              "IntentAgent",
+              "GitHub Models Failover Failed",
+              githubErr.message,
+              "Gracefully falling back to local high-fidelity regex slang parser.",
+              "GitHub Fallback"
+            );
+          }
+        }
+      }
+    }
+
+    // 2.5 GitHub Models API Parser (Direct choice)
+    if (nlpConfig.mode === "github" && nlpConfig.githubToken) {
+      this.logAgentTrace(
+        "IntentAgent",
+        "GitHub Models API Parsing Triggered",
+        `Querying model "${nlpConfig.githubModel || "gpt-4o"}" via standard inference endpoint.`,
+        "Executing intent parsing using high-performance open/proprietary developer models.",
+        "GitHub Models API"
+      );
+
+      try {
+        const parsedIntent = await this.queryGitHubModels(
+          rawInput,
+          nlpConfig.githubToken,
+          nlpConfig.githubModel || "gpt-4o",
+          systemPrompt,
+          chatHistory
+        );
+        return this.sanitizeParsedIntent(parsedIntent, previousIntent, "GitHub Models");
+      } catch (err) {
+        this.logAgentTrace(
+          "IntentAgent",
+          "GitHub Models Parsing Failed",
+          err.message,
           "Gracefully falling back to local high-fidelity regex slang parser.",
-          "Groq Fallback"
+          "GitHub Fallback"
         );
       }
     }
@@ -293,6 +346,50 @@ Provide ONLY the raw JSON output. No markdown wrappers, no backticks, just valid
 
     this.updateTaskStatus(0, "completed");
     return resultIntent;
+  }
+
+  // Helper method to query the GitHub Models API
+  async queryGitHubModels(rawInput, token, model, systemPrompt, chatHistory = []) {
+    const chatMessages = [
+      { role: "system", content: systemPrompt }
+    ];
+
+    if (chatHistory && chatHistory.length > 0) {
+      chatHistory.forEach(msg => {
+        chatMessages.push({
+          role: msg.sender === "user" ? "user" : "assistant",
+          content: msg.text.replace(/\*\*/g, "")
+        });
+      });
+    }
+
+    chatMessages.push({ role: "user", content: rawInput });
+
+    const response = await fetch("https://models.inference.ai.azure.com/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        model: model,
+        messages: chatMessages,
+        temperature: 0.1,
+        response_format: { type: "json_object" }
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error ${response.status}: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    const responseText = data.choices?.[0]?.message?.content;
+    if (!responseText) {
+      throw new Error("Empty response from GitHub Models API");
+    }
+
+    return JSON.parse(responseText.trim());
   }
 
   // Sanitizes structural LLM outputs
@@ -482,6 +579,9 @@ Provide ONLY the raw JSON output. No markdown wrappers, no backticks, just valid
       targetCoords = sectorsCoordinates["G-13"]; // ultimate fallback
     }
 
+    this.updateTaskStatus(1, "completed");
+    this.updateTaskStatus(2, "in-progress");
+
     let matches = [];
 
     // If OpenStreetMap search is active, attempt to fetch live local businesses from OSM
@@ -505,7 +605,7 @@ Provide ONLY the raw JSON output. No markdown wrappers, no backticks, just valid
 
     if (matches.length === 0) {
       this.logAgentTrace("DiscoveryAgent", "No Providers Found", "Fallback mode triggered.", "Checking adjoining sectors or waitlisting.");
-      this.updateTaskStatus(1, "failed");
+      this.updateTaskStatus(2, "failed");
       return [];
     }
 
@@ -558,13 +658,13 @@ Provide ONLY the raw JSON output. No markdown wrappers, no backticks, just valid
       "Ranking Algorithm"
     );
 
-    this.updateTaskStatus(1, "completed");
+    this.updateTaskStatus(2, "completed");
     return ranked;
   }
 
   // Dynamic Pricing Agent
   calculatePricing(provider, intent) {
-    this.updateTaskStatus(2, "in-progress");
+    this.updateTaskStatus(3, "in-progress");
     this.logAgentTrace(
       "PricingAgent",
       "Calculating Custom Quote",
@@ -611,13 +711,131 @@ Provide ONLY the raw JSON output. No markdown wrappers, no backticks, just valid
       "Pricing Logic"
     );
 
-    this.updateTaskStatus(2, "completed");
+    this.updateTaskStatus(3, "completed");
     return quote;
   }
 
-  // Booking Simulation Agent (LocalStorage Persistence)
-  async simulateBooking(provider, pricing, intent, activeCoords = null) {
-    this.updateTaskStatus(3, "in-progress");
+  // Database model mapping helpers to match SQL snake_case schema
+  mapToDbBooking(booking) {
+    return {
+      id: booking.id,
+      provider_id: booking.providerId,
+      provider_name: booking.providerName,
+      provider_phone: booking.providerPhone,
+      service: booking.service,
+      location: booking.location,
+      time_slot: booking.timeSlot,
+      pricing: booking.pricing,
+      status: booking.status,
+      timestamp: booking.timestamp,
+      location_coords: booking.locationCoords
+    };
+  }
+
+  mapFromDbBooking(dbBooking) {
+    return {
+      id: dbBooking.id,
+      providerId: dbBooking.provider_id,
+      providerName: dbBooking.provider_name,
+      providerPhone: dbBooking.provider_phone,
+      service: dbBooking.service,
+      location: dbBooking.location,
+      timeSlot: dbBooking.time_slot,
+      pricing: dbBooking.pricing,
+      status: dbBooking.status,
+      timestamp: dbBooking.timestamp,
+      locationCoords: dbBooking.location_coords
+    };
+  }
+
+  // Supabase Direct REST API lightweight client methods (sub-250KB optimized bundle)
+  async saveBookingToSupabase(booking, config) {
+    if (!config || !config.supabaseUrl || !config.supabaseKey) {
+      throw new Error("Supabase is unconfigured.");
+    }
+    const cleanUrl = config.supabaseUrl.replace(/\/$/, "");
+    const url = `${cleanUrl}/rest/v1/bookings`;
+    const dbBooking = this.mapToDbBooking(booking);
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "apikey": config.supabaseKey,
+        "Authorization": `Bearer ${config.supabaseKey}`,
+        "Prefer": "return=representation"
+      },
+      body: JSON.stringify(dbBooking)
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`Supabase POST error (${response.status}): ${errText}`);
+    }
+    return await response.json();
+  }
+
+  async updateBookingInSupabase(bookingId, updates, config) {
+    if (!config || !config.supabaseUrl || !config.supabaseKey) {
+      throw new Error("Supabase is unconfigured.");
+    }
+    const cleanUrl = config.supabaseUrl.replace(/\/$/, "");
+    const url = `${cleanUrl}/rest/v1/bookings?id=eq.${bookingId}`;
+
+    const dbUpdates = {};
+    if (updates.status !== undefined) dbUpdates.status = updates.status;
+    if (updates.providerId !== undefined) dbUpdates.provider_id = updates.providerId;
+    if (updates.providerName !== undefined) dbUpdates.provider_name = updates.providerName;
+    if (updates.providerPhone !== undefined) dbUpdates.provider_phone = updates.providerPhone;
+    if (updates.pricing !== undefined) dbUpdates.pricing = updates.pricing;
+    if (updates.locationCoords !== undefined) dbUpdates.location_coords = updates.locationCoords;
+
+    const response = await fetch(url, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        "apikey": config.supabaseKey,
+        "Authorization": `Bearer ${config.supabaseKey}`,
+        "Prefer": "return=representation"
+      },
+      body: JSON.stringify(dbUpdates)
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`Supabase PATCH error (${response.status}): ${errText}`);
+    }
+    return await response.json();
+  }
+
+  async fetchBookingsFromSupabase(config) {
+    if (!config || !config.supabaseUrl || !config.supabaseKey) {
+      throw new Error("Supabase is unconfigured.");
+    }
+    const cleanUrl = config.supabaseUrl.replace(/\/$/, "");
+    const url = `${cleanUrl}/rest/v1/bookings?order=timestamp.desc`;
+
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        "apikey": config.supabaseKey,
+        "Authorization": `Bearer ${config.supabaseKey}`,
+        "Accept": "application/json"
+      }
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`Supabase GET error (${response.status}): ${errText}`);
+    }
+
+    const data = await response.json();
+    return data.map(dbBooking => this.mapFromDbBooking(dbBooking));
+  }
+
+  // Booking Simulation Agent (Supabase persistent ledger with LocalStorage fallback)
+  async simulateBooking(provider, pricing, intent, activeCoords = null, dbConfig = null) {
+    this.updateTaskStatus(4, "in-progress");
     this.logAgentTrace(
       "BookingAgent",
       "Reserving Slot",
@@ -641,21 +859,53 @@ Provide ONLY the raw JSON output. No markdown wrappers, no backticks, just valid
       timestamp: new Date().toLocaleString()
     };
 
-    // Save booking records to localStorage to keep it 100% self-hosted & serverless
-    try {
-      const existingBookings = JSON.parse(localStorage.getItem("hamara_rozgar_bookings") || "[]");
-      existingBookings.push(newBooking);
-      localStorage.setItem("hamara_rozgar_bookings", JSON.stringify(existingBookings));
-      
-      this.logAgentTrace(
-        "BookingAgent", 
-        "Local Ledger Database Write Succeeded", 
-        `Doc ID: ${newBooking.id} (Saved to Web Storage)`, 
-        "Successfully committed transaction record to persistent local browser ledger storage.", 
-        "Local Storage API"
-      );
-    } catch (err) {
-      this.logAgentTrace("BookingAgent", "Local Ledger Write Failed", err.message, "Local Storage write error.", "Local Storage API");
+    let isSavedToSupabase = false;
+
+    if (dbConfig && dbConfig.supabaseUrl && dbConfig.supabaseKey) {
+      try {
+        this.logAgentTrace(
+          "BookingAgent",
+          "Attempting Cloud Database Write",
+          `Doc ID: ${newBooking.id} (Supabase Table: bookings)`,
+          "Connecting to open-source self-hostable cloud backend...",
+          "Supabase REST API"
+        );
+        await this.saveBookingToSupabase(newBooking, dbConfig);
+        isSavedToSupabase = true;
+        this.logAgentTrace(
+          "BookingAgent",
+          "Cloud Ledger Database Write Succeeded",
+          `Doc ID: ${newBooking.id} (Saved to Supabase)`,
+          "Successfully committed transaction record to persistent cloud ledger storage.",
+          "Supabase API"
+        );
+      } catch (err) {
+        this.logAgentTrace(
+          "BookingAgent",
+          "Cloud Ledger Write Failed. Falling Back to Local Ledger.",
+          err.message,
+          "Gracefully degrading to browser localStorage to prevent request failure.",
+          "Supabase API Fallback"
+        );
+      }
+    }
+
+    if (!isSavedToSupabase) {
+      try {
+        const existingBookings = JSON.parse(localStorage.getItem("hamara_rozgar_bookings") || "[]");
+        existingBookings.push(newBooking);
+        localStorage.setItem("hamara_rozgar_bookings", JSON.stringify(existingBookings));
+        
+        this.logAgentTrace(
+          "BookingAgent", 
+          "Local Ledger Database Write Succeeded", 
+          `Doc ID: ${newBooking.id} (Saved to Web Storage)`, 
+          "Successfully committed transaction record to persistent local browser ledger storage.", 
+          "Local Storage API"
+        );
+      } catch (err) {
+        this.logAgentTrace("BookingAgent", "Local Ledger Write Failed", err.message, "Local Storage write error.", "Local Storage API");
+      }
     }
 
     this.logAgentTrace(
@@ -666,18 +916,52 @@ Provide ONLY the raw JSON output. No markdown wrappers, no backticks, just valid
       "Messaging API"
     );
 
-    this.updateTaskStatus(3, "completed");
+    this.updateTaskStatus(4, "completed");
     return newBooking;
   }
 
   // Service Follow-Up Loop
-  simulateServiceProgress(booking, onStatusUpdate) {
-    this.updateTaskStatus(4, "in-progress");
+  simulateServiceProgress(booking, onStatusUpdate, dbConfig = null) {
+    this.updateTaskStatus(5, "in-progress");
     this.logAgentTrace("FollowupAgent", "Initiating Tracking Workflow", `Booking ID: ${booking.id}`, "Monitoring provider status and en-route indicators.");
 
+    const updateStatusHelper = async (newStatus) => {
+      booking.status = newStatus;
+      
+      // Update locally
+      try {
+        const existingBookings = JSON.parse(localStorage.getItem("hamara_rozgar_bookings") || "[]");
+        const idx = existingBookings.findIndex(b => b.id === booking.id);
+        if (idx !== -1) {
+          existingBookings[idx] = booking;
+          localStorage.setItem("hamara_rozgar_bookings", JSON.stringify(existingBookings));
+        }
+      } catch (_) {}
+
+      // Update cloud if active
+      if (dbConfig && dbConfig.supabaseUrl && dbConfig.supabaseKey) {
+        try {
+          await this.updateBookingInSupabase(booking.id, { status: newStatus }, dbConfig);
+          this.logAgentTrace(
+            "FollowupAgent",
+            "Supabase Sync Complete",
+            `Status updated to "${newStatus}" in Supabase.`,
+            "Active status sync executed successfully."
+          );
+        } catch (err) {
+          this.logAgentTrace(
+            "FollowupAgent",
+            "Supabase Sync Failed",
+            err.message,
+            "Failed to push progress state to Supabase. Operating in offline local fallback mode."
+          );
+        }
+      }
+      onStatusUpdate({ ...booking });
+    };
+
     // Step 1: En-Route (simulated after 4 seconds)
-    setTimeout(() => {
-      booking.status = "Provider En-Route";
+    setTimeout(async () => {
       this.logAgentTrace(
         "FollowupAgent",
         "Provider En-Route",
@@ -685,24 +969,22 @@ Provide ONLY the raw JSON output. No markdown wrappers, no backticks, just valid
         "Live location signals initialized.",
         "GPS Signal"
       );
-      onStatusUpdate({ ...booking });
+      await updateStatusHelper("Provider En-Route");
     }, 4000);
 
     // Step 2: Work Started (simulated after 9 seconds)
-    setTimeout(() => {
-      booking.status = "Work In Progress";
+    setTimeout(async () => {
       this.logAgentTrace(
         "FollowupAgent",
         "Work Started",
         "Provider arrived, verified job card details, and commenced service.",
         "Checklist: Safety kit enabled, tools unboxed."
       );
-      onStatusUpdate({ ...booking });
+      await updateStatusHelper("Work In Progress");
     }, 9000);
 
     // Step 3: Work Completed (simulated after 15 seconds)
-    setTimeout(() => {
-      booking.status = "Completed";
+    setTimeout(async () => {
       this.logAgentTrace(
         "FollowupAgent",
         "Service Completed",
@@ -710,20 +992,55 @@ Provide ONLY the raw JSON output. No markdown wrappers, no backticks, just valid
         "Photo evidence unboxed. Billing receipt generated.",
         "Checklist Tool"
       );
-      this.updateTaskStatus(4, "completed");
-      this.updateTaskStatus(5, "in-progress");
-      onStatusUpdate({ ...booking });
+      this.updateTaskStatus(5, "completed");
+      await updateStatusHelper("Completed");
     }, 15000);
   }
 
   // Dispute and Fallback Agent
-  async handleDispute(booking, type, details, onStatusUpdate, mapConfig = { mode: "osm" }, gpsCoords = null) {
+  async handleDispute(booking, type, details, onStatusUpdate, mapConfig = { mode: "osm" }, gpsCoords = null, dbConfig = null) {
+    this.updateTaskStatus(5, "in-progress");
     this.logAgentTrace(
       "DisputeAgent",
       "Dispute Triggered",
       `Type: ${type}, Details: ${details}`,
       "Analyzing case files, comparing historical ratings, and preparing refund/compensation credits."
     );
+
+    const syncBookingUpdate = async (updates) => {
+      Object.assign(booking, updates);
+
+      // Update locally
+      try {
+        const existingBookings = JSON.parse(localStorage.getItem("hamara_rozgar_bookings") || "[]");
+        const idx = existingBookings.findIndex(b => b.id === booking.id);
+        if (idx !== -1) {
+          existingBookings[idx] = booking;
+          localStorage.setItem("hamara_rozgar_bookings", JSON.stringify(existingBookings));
+        }
+      } catch (_) {}
+
+      // Update cloud if active
+      if (dbConfig && dbConfig.supabaseUrl && dbConfig.supabaseKey) {
+        try {
+          await this.updateBookingInSupabase(booking.id, updates, dbConfig);
+          this.logAgentTrace(
+            "DisputeAgent",
+            "Supabase Sync Complete",
+            `Dispute update synced to Supabase.`,
+            "Active state sync executed successfully."
+          );
+        } catch (err) {
+          this.logAgentTrace(
+            "DisputeAgent",
+            "Supabase Sync Failed",
+            err.message,
+            "Failed to push dispute state to Supabase. Operating in offline local fallback mode."
+          );
+        }
+      }
+      onStatusUpdate({ ...booking });
+    };
 
     if (type === "Provider Cancelled") {
       this.logAgentTrace(
@@ -744,45 +1061,27 @@ Provide ONLY the raw JSON output. No markdown wrappers, no backticks, just valid
 
       const alternative = nextCandidates.find(p => p.id !== booking.providerId);
       if (alternative) {
-        booking.providerId = alternative.id;
-        booking.providerName = alternative.name;
-        booking.providerPhone = alternative.phone;
-        booking.status = "Re-assigned to " + alternative.name;
-        
-        // Update booking in local storage
-        try {
-          const existingBookings = JSON.parse(localStorage.getItem("hamara_rozgar_bookings") || "[]");
-          const idx = existingBookings.findIndex(b => b.id === booking.id);
-          if (idx !== -1) {
-            existingBookings[idx] = booking;
-            localStorage.setItem("hamara_rozgar_bookings", JSON.stringify(existingBookings));
-          }
-        } catch (_) {}
-
         this.logAgentTrace(
           "DisputeAgent",
           "Alternative Found",
           `Re-assigned booking to ${alternative.name}.`,
           "Successfully recovered service booking and dispatched new provider."
         );
+        await syncBookingUpdate({
+          providerId: alternative.id,
+          providerName: alternative.name,
+          providerPhone: alternative.phone,
+          status: "Re-assigned to " + alternative.name
+        });
       } else {
-        booking.status = "Cancelled - Fully Refunded";
         this.logAgentTrace("DisputeAgent", "Recovery Failed", "No other providers available in the sector time-frame. Issuing complete billing refund.");
+        await syncBookingUpdate({
+          status: "Cancelled - Fully Refunded"
+        });
       }
-      onStatusUpdate({ ...booking });
     } else if (type === "Price Disagreement") {
-      booking.status = "Disputed - Pending Audit";
-      booking.pricing.totalPrice = Math.round(booking.pricing.totalPrice * 0.9); // 10% discount to resolve conflict
-      
-      // Update booking in local storage
-      try {
-        const existingBookings = JSON.parse(localStorage.getItem("hamara_rozgar_bookings") || "[]");
-        const idx = existingBookings.findIndex(b => b.id === booking.id);
-        if (idx !== -1) {
-          existingBookings[idx] = booking;
-          localStorage.setItem("hamara_rozgar_bookings", JSON.stringify(existingBookings));
-        }
-      } catch (_) {}
+      const newPrice = Math.round(booking.pricing.totalPrice * 0.9); // 10% discount to resolve conflict
+      const updatedPricing = { ...booking.pricing, totalPrice: newPrice };
 
       this.logAgentTrace(
         "DisputeAgent",
@@ -790,16 +1089,22 @@ Provide ONLY the raw JSON output. No markdown wrappers, no backticks, just valid
         "10% operational discount applied to dynamic quote to satisfy customer budget request.",
         "System updated reputation index of provider."
       );
-      onStatusUpdate({ ...booking });
+      await syncBookingUpdate({
+        status: "Disputed - Pending Audit",
+        pricing: updatedPricing
+      });
     } else if (type === "Quality Complaint") {
-      booking.status = "Disputed - Pending Review";
       this.logAgentTrace(
         "DisputeAgent",
         "Audit Triggered",
         "Escalating case logs to human administrator review panel.",
         "Provider reputation rating flagged for down-ranking on future matching cycles."
       );
-      onStatusUpdate({ ...booking });
+      await syncBookingUpdate({
+        status: "Disputed - Pending Review"
+      });
     }
+    
+    this.updateTaskStatus(5, "completed");
   }
 }
