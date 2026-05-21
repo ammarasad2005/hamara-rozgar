@@ -93,15 +93,19 @@ TARGET_CATEGORIES = [
     "Carpenter",
 ]
 
-# Semantic Pakistani local marketplace query synonyms mapping (Query Expansion)
-CATEGORY_SEARCH_QUERIES = {
-    "Plumber": "Plumber OR Sanitary Store OR Hardware Store OR Pipe Fitting",
-    "AC Technician": "AC Repair OR AC Technician OR Refrigerator Repair OR HVAC",
-    "Electrician": "Electrician OR Electric Store OR Fan Repair OR Bijli Shop",
-    "Tutor Academy": "Tutor Academy OR Tuition Center OR Home Tutors",
-    "Beauty Parlor": "Beauty Parlor OR Beauty Salon OR Bridal Makeup Studio",
-    "Car Mechanic": "Car Mechanic OR Auto Workshop OR EFI Tuning OR Puncture Shop",
-    "Carpenter": "Carpenter OR Wood Works OR Furniture Shop"
+# ── Query Expansion: Multiple individual search terms per category ────────────
+# IMPORTANT: Google Maps does NOT support boolean OR operators.
+# Each term in this list is run as a SEPARATE search query at each grid node.
+# This expands coverage by sweeping for local Pakistani business naming patterns
+# (e.g. a plumber might list himself as "sanitary store" not "plumber").
+CATEGORY_SEARCH_QUERIES: dict[str, list[str]] = {
+    "Plumber":       ["Plumber", "Sanitary Store", "Pipe Fitting"],
+    "AC Technician": ["AC Technician", "AC Repair", "Refrigerator Repair"],
+    "Electrician":   ["Electrician", "Electric Store", "Fan Repair"],
+    "Tutor Academy": ["Tutor Academy", "Tuition Center"],
+    "Beauty Parlor": ["Beauty Parlor", "Beauty Salon"],
+    "Car Mechanic":  ["Car Mechanic", "Auto Workshop", "Puncture Shop"],
+    "Carpenter":     ["Carpenter", "Furniture Shop", "Wood Works"],
 }
 
 
@@ -113,10 +117,11 @@ MAX_DELAY    = float(os.getenv("MAX_DELAY", "5"))
 MAX_SCROLLS  = int(os.getenv("MAX_SCROLLS", "30"))
 MAX_RUN_TIME = int(os.getenv("MAX_RUN_TIME", "0"))  # Max duration in seconds (0 = unlimited)
 
-# Selectors — Google Maps DOM is obfuscated; these are role/attribute anchors
-# that are far more stable than class names.
+# Selectors — Google Maps DOM is obfuscated; use stable role/aria anchors.
 SEL_RESULTS_PANEL  = '[role="feed"]'
-SEL_RESULT_ITEMS   = '[role="feed"] > div[jsaction]'
+# ROBUST card selector: targets the clickable <a> link inside each result card.
+# Avoids '[role="feed"] > div[jsaction]' which fails when Google updates its DOM.
+SEL_RESULT_ITEMS   = '[role="feed"] a[href*="/maps/place/"]'
 SEL_END_OF_LIST    = "text=You've reached the end of the list"
 SEL_SPINNER        = '[role="feed"] img[src*="loading"]'
 
@@ -370,7 +375,9 @@ async def extract_listing_data(
     """
     results: list[Provider] = []
 
-    # Use locator for dynamic re-fetching to prevent stale reference exceptions
+    # Use locator for dynamic re-fetching to prevent stale reference exceptions.
+    # SEL_RESULT_ITEMS targets <a href="/maps/place/..."> links inside the feed.
+    # Each such anchor IS the clickable business card.
     cards_locator = page.locator(SEL_RESULT_ITEMS)
     card_count = await cards_locator.count()
     log.info(f"Found {card_count} result cards in feed.")
@@ -378,12 +385,22 @@ async def extract_listing_data(
     for idx in range(card_count):
         try:
             card = cards_locator.nth(idx)
-            
-            # Skip dividers / ads that don't have a business name
-            name_el = card.locator('[class*="fontHeadlineSmall"], .qBF1Pd, [jstcache] span[class]').first
-            if await name_el.count() == 0:
-                continue
-            biz_name = (await name_el.inner_text()).strip()
+
+            # Extract business name from the aria-label of the anchor,
+            # which Google Maps reliably populates (e.g. aria-label="Ali Plumber").
+            # Fall back to reading inner text of the first heading span inside.
+            biz_name = ""
+            try:
+                biz_name = (await card.get_attribute("aria-label") or "").strip()
+            except Exception:
+                pass
+            if not biz_name:
+                try:
+                    name_el = card.locator('[class*="fontHeadlineSmall"], .qBF1Pd, span[class]').first
+                    if await name_el.count() > 0:
+                        biz_name = (await name_el.inner_text()).strip()
+                except Exception:
+                    pass
             if not biz_name or len(biz_name) < 2:
                 continue
 
@@ -516,18 +533,22 @@ async def search_node(
     lat: float,
     lon: float,
     category: str,
+    search_term: str,
 ) -> list[Provider]:
     """
-    Execute a single (node, category) search and return all scraped Providers.
+    Execute a single (node, category, search_term) search and return all scraped Providers.
+    search_term is one specific query string (e.g. "Plumber", "Sanitary Store") from
+    CATEGORY_SEARCH_QUERIES[category] — Google Maps does not support boolean OR.
     """
-    search_term = CATEGORY_SEARCH_QUERIES.get(category, category)
     query = f"{search_term} near {lat:.5f}, {lon:.5f}"
+    # Encode properly: spaces→+, keep commas as-is
+    encoded_query = query.replace(' ', '+').replace(',', ',')
     search_url = (
-        f"https://www.google.com/maps/search/{query.replace(' ', '+')}/"
+        f"https://www.google.com/maps/search/{encoded_query}/"
         f"@{lat},{lon},15z?hl=en"
     )
 
-    log.info(f"→ Category: {category} (Query: {search_term})")
+    log.info(f"→ [{category}] Query: '{search_term}' near {lat:.5f},{lon:.5f}")
 
     try:
         await page.goto(search_url, wait_until="domcontentloaded", timeout=30_000)
@@ -627,10 +648,32 @@ async def run():
 
                 cat_start = start_cat if node_idx == start_node else 0
 
-                for cat_idx in range(cat_start, len(TARGET_CATEGORIES)):
-                    category = TARGET_CATEGORIES[cat_idx]
+                # ── Expand each category into individual search terms ──────
+                # Build a flat list of (cat_idx, search_term) pairs to iterate.
+                # Google Maps does NOT support boolean OR — each term is a
+                # separate search. We use cat_idx for progress tracking and
+                # deduplicate results across terms using seen_keys.
+                all_searches: list[tuple[int, str, str]] = []
+                for cat_idx, category in enumerate(TARGET_CATEGORIES):
+                    for term in CATEGORY_SEARCH_QUERIES.get(category, [category]):
+                        all_searches.append((cat_idx, category, term))
 
-                    providers = await search_node(page, context, lat, lon, category)
+                # Determine the starting search offset within this node
+                # (cat_start tracks the category index, not the flat term index)
+                start_search_idx = 0
+                if node_idx == start_node and cat_start > 0:
+                    # Skip all searches for categories before cat_start
+                    start_search_idx = sum(
+                        len(CATEGORY_SEARCH_QUERIES.get(TARGET_CATEGORIES[c], [TARGET_CATEGORIES[c]]))
+                        for c in range(cat_start)
+                    )
+
+                for search_offset, (cat_idx, category, term) in enumerate(all_searches):
+                    if search_offset < start_search_idx:
+                        pbar.update(0)  # don't double-count already-done searches
+                        continue
+
+                    providers = await search_node(page, context, lat, lon, category, term)
 
                     # ── Deduplication ─────────────────────────────────────
                     fresh: list[Provider] = []
@@ -647,7 +690,7 @@ async def run():
 
                     log.info(
                         f"Node [{node_idx+1}/{total_nodes}] | Cat [{cat_idx+1}/{len(TARGET_CATEGORIES)}] "
-                        f"| Found {len(providers)} | New {len(fresh)} | Total new: {new_records}"
+                        f"| Term '{term}' | Found {len(providers)} | New {len(fresh)} | Total new: {new_records}"
                     )
 
                     # Save progress AFTER each (node, category) pair
@@ -658,7 +701,7 @@ async def run():
                     human_delay(MIN_DELAY, MAX_DELAY)
 
                     # Rotate browser context every ~50 searches to reset fingerprint
-                    searches_done = (node_idx * len(TARGET_CATEGORIES)) + cat_idx + 1
+                    searches_done = (node_idx * len(all_searches)) + search_offset + 1
                     if searches_done % 50 == 0:
                         log.info("Rotating browser context for anti-detection...")
                         await page.close()
