@@ -1,22 +1,23 @@
-import React, { useState, useEffect, useRef } from "react";
+/* eslint-disable react-hooks/exhaustive-deps, react-hooks/set-state-in-effect */
+import { useState, useEffect, useRef } from "react";
 import { ServiceOrchestrator } from "./agents/Orchestrator";
-import { sampleRequests } from "./data/mockProviders";
+import { sampleRequests } from "./data/serviceData";
 import { 
-  Bot, User, Sparkles, Navigation, Calendar, 
-  MapPin, CheckCircle, AlertTriangle, Settings, 
-  Briefcase, DollarSign, Star, Send, ShieldCheck,
+  User, Sparkles, Calendar, 
+  MapPin, AlertTriangle, Settings, 
+  Briefcase, DollarSign, Star, Send, 
   ChevronDown, ChevronUp, Terminal, History, Check, ShieldAlert,
-  Phone, X, Compass, RefreshCw, HelpCircle
+  Phone, X, Compass, RefreshCw
 } from "lucide-react";
 
 // 🔐 Configuration Settings & Credentials loaded from environment variables
-const nlpEngine = import.meta.env.VITE_NLP_ENGINE || "regex";
+const nlpEngine = import.meta.env.VITE_NLP_ENGINE || "github";
 const mapEngine = import.meta.env.VITE_MAP_ENGINE || "osm";
 const ollamaUrl = import.meta.env.VITE_OLLAMA_URL || "http://localhost:11434";
 const ollamaModel = import.meta.env.VITE_OLLAMA_MODEL || "llama3";
 const groqApiKey = import.meta.env.VITE_GROQ_API_KEY || "";
 const githubToken = import.meta.env.VITE_GITHUB_TOKEN || "";
-const githubModel = import.meta.env.VITE_GITHUB_MODEL || "gpt-4o";
+const githubModel = import.meta.env.VITE_GITHUB_MODEL || "gpt-4o-mini";
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || "";
 const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
 
@@ -30,7 +31,7 @@ export default function App() {
   
   // 🛠️ Logging and tracking states
   const [traceLogs, setTraceLogs] = useState([]);
-  const [workplan, setWorkplan] = useState([]);
+  const [, setWorkplan] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [pastBookings, setPastBookings] = useState([]);
   
@@ -48,7 +49,6 @@ export default function App() {
 
   // 👤 Specialist / Booking states
   const [activeIntent, setActiveIntent] = useState(null);
-  const [matchedProviders, setMatchedProviders] = useState([]);
   const [selectedProvider, setSelectedProvider] = useState(null);
   const [priceQuote, setPriceQuote] = useState(null);
   const [activeBooking, setActiveBooking] = useState(null);
@@ -63,7 +63,6 @@ export default function App() {
     0: false, 1: false, 2: false, 3: false, 4: false, 5: false
   });
 
-  const chatEndRef = useRef(null);
   const traceEndRef = useRef(null);
   const terminalEndRef = useRef(null);
 
@@ -115,7 +114,7 @@ export default function App() {
             "Successfully fetched browser Geolocation at startup to use as default proximity center."
           );
         },
-        (error) => {
+        () => {
           agent.logAgentTrace(
             "System",
             "GPS Location Request Failed",
@@ -259,7 +258,6 @@ export default function App() {
     
     // Clear old details
     setActiveIntent(null);
-    setMatchedProviders([]);
     setSelectedProvider(null);
     setPriceQuote(null);
     setActiveBooking(null);
@@ -285,10 +283,122 @@ export default function App() {
     setActiveIntent(parsedIntent);
     
     // Aesthetic processing delay for AI feeling
-    await new Promise(r => setTimeout(r, 600));
+    await new Promise(r => setTimeout(r, 800));
 
+    // ROUTING FORK BASED ON TYPE
+    if (parsedIntent.type === "history") {
+      // 2. Stage 1: Querying Persistent Transaction Ledger
+      orchestrator.logAgentTrace("BookingAgent", "Scanning Database Ledger", "Connecting to Supabase/LocalStorage to retrieve receipt transaction list.", "Reading recent transaction table columns...");
+      orchestrator.updateTaskStatus(1, "in-progress");
+      
+      await loadBookings();
+      await new Promise(r => setTimeout(r, 1000));
+      orchestrator.updateTaskStatus(1, "completed");
+
+      // 3. Stage 2: Displaying Historical Receipts
+      orchestrator.logAgentTrace("System", "Transitioning View", "Rendering booking transaction logs.", "Redirecting viewport to History Ledger canvas.");
+      orchestrator.updateTaskStatus(2, "in-progress");
+      
+      await new Promise(r => setTimeout(r, 800));
+      orchestrator.updateTaskStatus(2, "completed");
+
+      setCurrentView("history");
+      setIsMatchingComplete(true);
+      return;
+    }
+
+    if (parsedIntent.type === "dispute") {
+      // 2. Stage 1: Retrieving Active Booking Transaction
+      orchestrator.logAgentTrace("DisputeAgent", "Retrieving Active Transaction", "Locating most recent service record to evaluate dispute parameters.", "Checking localStorage and cloud table sync state...");
+      orchestrator.updateTaskStatus(1, "in-progress");
+      
+      let targetBooking = activeBooking;
+      if (!targetBooking && pastBookings.length > 0) {
+        targetBooking = pastBookings[0];
+      }
+      
+      await new Promise(r => setTimeout(r, 1000));
+      
+      if (!targetBooking) {
+        orchestrator.logAgentTrace("DisputeAgent", "Dispute Evaluation Blocked", "No active or historical bookings found in database ledger.", "Aborting audit.");
+        orchestrator.updateTaskStatus(1, "failed");
+        setIsMatchingComplete(true);
+        return;
+      }
+      
+      setActiveBooking(targetBooking);
+      setTrackingStatus(targetBooking.status);
+      orchestrator.updateTaskStatus(1, "completed");
+
+      // 3. Stage 2: Dispute Resolution Audit
+      orchestrator.logAgentTrace("DisputeAgent", "Auditing Operational Parameters", `Running automated anomaly audit for Dispute Type: "Service Complaint"`, "Self-healing algorithms matching refund/re-assign variables...");
+      orchestrator.updateTaskStatus(2, "in-progress");
+      
+      await new Promise(r => setTimeout(r, 1000));
+      
+      // Execute automated dispute audit
+      const activeCoords = locationMode === "GPS" ? gpsCoords : customCoords;
+      let disputeDetails = text;
+      let disputeType = "Quality Complaint";
+      if (text.toLowerCase().includes("late") || text.toLowerCase().includes("arrival")) {
+        disputeType = "Provider Cancelled"; // triggers provider re-routing or refund
+      } else if (text.toLowerCase().includes("sasta") || text.toLowerCase().includes("price") || text.toLowerCase().includes("fare") || text.toLowerCase().includes("budget")) {
+        disputeType = "Price Disagreement"; // proposals discount
+      }
+      
+      orchestrator.updateTaskStatus(2, "completed");
+
+      // 4. Stage 3: Syncing Partner Score & Persisting Ledger
+      orchestrator.logAgentTrace("DisputeAgent", "Syncing ledger update", "Writing dispute outcome to cloud database and updating partner rating coefficient.", "Updating match weight vectors.");
+      orchestrator.updateTaskStatus(3, "in-progress");
+      
+      await orchestrator.handleDispute(
+        targetBooking, 
+        disputeType, 
+        disputeDetails, 
+        (updatedBooking) => {
+          setTrackingStatus(updatedBooking.status);
+          setActiveBooking(updatedBooking);
+          if (disputeType === "Provider Cancelled" && updatedBooking.providerId) {
+            setSelectedProvider(updatedBooking);
+          }
+        }, 
+        { mode: mapEngine }, 
+        activeCoords,
+        { supabaseUrl, supabaseKey }
+      );
+      
+      await loadBookings();
+      await new Promise(r => setTimeout(r, 1000));
+      orchestrator.updateTaskStatus(3, "completed");
+
+      setCurrentView("active-booking");
+      setIsMatchingComplete(true);
+      return;
+    }
+
+    if (parsedIntent.type === "general_query") {
+      // 2. Stage 1: Marketplace Capacity Scan
+      orchestrator.logAgentTrace("DiscoveryAgent", "Marketplace Capacity Scan", "Scanning provider registry size and filtering matching availability sectors.", "Locating active hubs in Islamabad...");
+      orchestrator.updateTaskStatus(1, "in-progress");
+      
+      await new Promise(r => setTimeout(r, 1200));
+      orchestrator.updateTaskStatus(1, "completed");
+
+      // 3. Stage 2: Formulating Response
+      orchestrator.logAgentTrace("IntentAgent", "Formulating Assistant Response", "Ready to assist customer with booking guides.", "Responding with platform capabilities.");
+      orchestrator.updateTaskStatus(2, "in-progress");
+      
+      await new Promise(r => setTimeout(r, 800));
+      orchestrator.updateTaskStatus(2, "completed");
+      
+      setIsMatchingComplete(true);
+      return;
+    }
+
+    // DEFAULT: "booking" flow
     // 2. Stage 1: Proximity Geocoding
-    let activeCoords = null;
+    let activeCoords;
     const isCustomTextLocation = parsedIntent.location && 
                                  parsedIntent.location !== "G-13" && 
                                  parsedIntent.location !== "GPS Location";
@@ -331,7 +441,6 @@ export default function App() {
 
     // 3. Stage 2: Registry Discovery & scoring 
     const providers = await orchestrator.discoverAndRank(parsedIntent, { mode: mapEngine }, activeCoords);
-    setMatchedProviders(providers);
 
     if (providers.length === 0) {
       setIsMatchingComplete(true);
@@ -418,22 +527,69 @@ export default function App() {
     }));
   };
 
-  const getStageTraces = (stageIndex) => {
-    switch (stageIndex) {
-      case 0:
-        return traceLogs.filter(log => log.agent === "IntentAgent" || (log.agent === "System" && log.action.includes("NLP")));
-      case 1:
-        return traceLogs.filter(log => log.agent === "DiscoveryAgent" && (log.action.includes("Geocoding") || log.action.includes("Nominatim")));
-      case 2:
-        return traceLogs.filter(log => log.agent === "DiscoveryAgent" && !log.action.includes("Geocoding") && !log.action.includes("Nominatim"));
-      case 3:
-        return traceLogs.filter(log => log.agent === "PricingAgent");
-      case 4:
-        return traceLogs.filter(log => log.agent === "BookingAgent");
-      case 5:
-        return traceLogs.filter(log => log.agent === "FollowupAgent" || log.agent === "DisputeAgent");
+  const getStageTraces = (stageTitle) => {
+    if (!stageTitle) return [];
+    const titleLower = stageTitle.toLowerCase();
+    if (titleLower.includes("intent") || titleLower.includes("slang") || titleLower.includes("sentiment") || titleLower.includes("semantic")) {
+      return traceLogs.filter(log => log.agent === "IntentAgent" || (log.agent === "System" && log.action.includes("NLP")));
+    }
+    if (titleLower.includes("geocode") || titleLower.includes("location") || titleLower.includes("landmark")) {
+      return traceLogs.filter(log => log.agent === "DiscoveryAgent" && (log.action.toLowerCase().includes("geocode") || log.action.toLowerCase().includes("nominatim") || (log.agent === "System" && log.action.toLowerCase().includes("location"))));
+    }
+    if (titleLower.includes("registry") || titleLower.includes("scan") || titleLower.includes("scoring") || titleLower.includes("capacity")) {
+      return traceLogs.filter(log => log.agent === "DiscoveryAgent" && !log.action.toLowerCase().includes("geocode") && !log.action.toLowerCase().includes("nominatim"));
+    }
+    if (titleLower.includes("pricing") || titleLower.includes("calculation") || titleLower.includes("fare") || titleLower.includes("quote")) {
+      return traceLogs.filter(log => log.agent === "PricingAgent");
+    }
+    if (titleLower.includes("ledger") || titleLower.includes("persistent") || titleLower.includes("transaction") || titleLower.includes("receipt") || titleLower.includes("sync") || titleLower.includes("database")) {
+      return traceLogs.filter(log => log.agent === "BookingAgent" || log.agent === "System" && log.action.toLowerCase().includes("database"));
+    }
+    if (titleLower.includes("tracking") || titleLower.includes("dispute") || titleLower.includes("audit") || titleLower.includes("resolution") || titleLower.includes("progress")) {
+      return traceLogs.filter(log => log.agent === "FollowupAgent" || log.agent === "DisputeAgent");
+    }
+    if (titleLower.includes("formulating") || titleLower.includes("response")) {
+      return traceLogs.filter(log => log.agent === "System" || log.agent === "IntentAgent" || log.agent === "PricingAgent");
+    }
+    return [];
+  };
+
+  const getStageDescription = (title) => {
+    switch (title) {
+      case "Intent Analysis & Slang Understanding":
+      case "Intent Analysis & Sentiment Detection":
+      case "Intent Analysis & Semantic Understanding":
+        return "Understanding bilingual Urdu natural language triggers";
+      case "Location Landmark Geocoding":
+      case "Proximity Location Geocoding":
+        return "OpenStreetMap Nominatim address coordinate mapping";
+      case "Provider Registry Scan & Scoring":
+      case "Registry Scan & Workload Balancing":
+        return "6-factor algorithm candidate utility computation";
+      case "Dynamic Fare Calculation":
+      case "Dynamic Quote Pricing Engine":
+        return "Formulating transparent quote & applying loyalty benefits";
+      case "Secure Ledger Sync":
+      case "Secure Persistent Ledger Transaction":
+        return "Recording secure transaction parameters to database";
+      case "Real-time Tracking & Dispute Escalations":
+        return "Dispatched tracking and automated anomaly audits";
+      case "Querying Persistent Transaction Ledger":
+        return "Fetching historical transaction receipts from Supabase / LocalStorage";
+      case "Displaying Historical Receipts":
+        return "Transitioning customer portal to receipts ledger canvas";
+      case "Retrieving Active Booking Transaction":
+        return "Fetching transaction logs for active or recent booking";
+      case "Dispute Resolution Audit":
+        return "Self-healing: auditing prices, re-routing partners, or processing refunds";
+      case "Syncing Partner Score & Persisting Ledger":
+        return "Updating database records and adjusting provider utility weights";
+      case "Marketplace Capacity Scan":
+        return "Verifying active catalog sizes and provider slots";
+      case "Formulating Response":
+        return "Generating dynamic assistant response chat bubble";
       default:
-        return [];
+        return "Agent processing step...";
     }
   };
 
@@ -580,11 +736,12 @@ export default function App() {
             {/* Quick Action Category Cards */}
             <div className="categories-grid">
               {[
-                { key: "ac", label: "AC & Cooling Repair", icon: Sparkles, desc: "Sajid AC Repairs & candidates", suggestion: "yaar AC bilkul thanda nhi kar rha G-13 me" },
-                { key: "plumbing", label: "Plumbing & Leaks", icon: Briefcase, desc: "Tariq Plumbers & specialists", suggestion: "kitchen me paani beh rha hai urgent G-11 me" },
-                { key: "electrical", label: "Electrician Services", icon: DollarSign, desc: "Amjad Electricians & registry", suggestion: "short circuit ho gya hai socket me urgent G-13 me" },
+                { key: "ac", label: "AC & Cooling Repair", icon: Sparkles, desc: "Vetted AC technicians & dynamic matching", suggestion: "yaar AC bilkul thanda nhi kar rha G-13 me" },
+                { key: "plumbing", label: "Plumbing & Leaks", icon: Briefcase, desc: "Professional plumbing & leak repair specialists", suggestion: "kitchen me paani beh rha hai urgent G-11 me" },
+                { key: "electrical", label: "Electrician Services", icon: DollarSign, desc: "Licensed electricians & emergency wiring solutions", suggestion: "short circuit ho gya hai socket me urgent G-13 me" },
                 { key: "cleaning", label: "Home Deep Cleaning", icon: Star, desc: "Direct registry cleaning partners", suggestion: "ghar ki safai krwani hai urgent" },
-                { key: "painting", label: "Professional Painting", icon: Calendar, desc: "Home paint and touch-ups", suggestion: "kamre ka rang kharab hai paint krwana hai" }
+                { key: "painting", label: "Professional Painting", icon: Calendar, desc: "Home paint and touch-ups", suggestion: "kamre ka rang kharab hai paint krwana hai" },
+                { key: "carpenter", label: "Carpenter & Woodwork", icon: Settings, desc: "Almari, doors, locks & custom wood fixes", suggestion: "meri almaari ka drwaaza toot gya" }
               ].map((cat) => (
                 <button 
                   key={cat.key} 
@@ -691,7 +848,7 @@ export default function App() {
                           <span className="price-value">{priceQuote.totalPrice} PKR</span>
                         </div>
                         <div className="price-breakdown-mini">
-                          Base rate: {priceQuote.basePrice} PKR | Travel: {priceQuote.travelFee} PKR {priceQuote.surgePrice > 0 && `| Surge: +${priceQuote.surgePrice} PKR`} {priceQuote.loyaltyDiscount > 0 && `| Loyalty: -${priceQuote.loyaltyDiscount} PKR`}
+                          Base rate: {priceQuote.baseRate} PKR | Travel: {priceQuote.distanceCost} PKR {priceQuote.surgeSurplus > 0 && `| Surge: +${priceQuote.surgeSurplus} PKR`} {priceQuote.loyaltyDiscount > 0 && `| Loyalty: -${priceQuote.loyaltyDiscount} PKR`}
                         </div>
                       </div>
                     )}
@@ -719,7 +876,7 @@ export default function App() {
               </div>
             )}
 
-            {/* 6-Stage Agentic Timeline Tree */}
+            {/* Dynamic Agentic Timeline Tree */}
             <div className="timeline-section-card">
               <h3 className="section-title">
                 <Sparkles size={16} color="var(--accent-purple)" />
@@ -727,21 +884,15 @@ export default function App() {
               </h3>
               
               <div className="timeline-container">
-                {[
-                  { title: "Intent Parsing & Conversational Semantics", index: 0, desc: "Understanding bilingual Urdu slang triggers" },
-                  { title: "Proximity Location Geocoding", index: 1, desc: "OpenStreetMap Nominatim address coordinate mapping" },
-                  { title: "Registry Scan & Workload Balancing", index: 2, desc: "6-factor algorithm candidate utility computation" },
-                  { title: "Dynamic Quote Pricing Engine", index: 3, desc: "Formulating transparent quote & applying loyalty benefits" },
-                  { title: "Secure Persistent Ledger Transaction", index: 4, desc: "Recording secure transaction parameters to database" },
-                  { title: "Real-time Tracking & Dispute Escalations", index: 5, desc: "Dispatched tracking and automated anomaly audits" }
-                ].map((stage) => {
-                  const stageStatus = tasks[stage.index]?.status || "pending";
-                  const stageTraces = getStageTraces(stage.index);
-                  const isOpen = openTimelineAccordions[stage.index];
+                {tasks.map((stage, idx) => {
+                  const stageStatus = stage.status || "pending";
+                  const stageTraces = getStageTraces(stage.text);
+                  const isOpen = openTimelineAccordions[idx];
+                  const stageDesc = getStageDescription ? getStageDescription(stage.text) : "Agent processing step...";
                   
                   return (
                     <div 
-                      key={stage.index} 
+                      key={idx} 
                       className={`timeline-node ${
                         stageStatus === "in-progress" ? "active-stage" : 
                         stageStatus === "completed" ? "completed-stage" : ""
@@ -751,10 +902,10 @@ export default function App() {
                         <span className={`timeline-dot ${stageStatus}`}></span>
                       </div>
 
-                      <div className="timeline-node-header" onClick={() => toggleAccordion(stage.index)}>
+                      <div className="timeline-node-header" onClick={() => toggleAccordion(idx)}>
                         <div className="timeline-node-title">
                           <span className={stageStatus === "completed" ? "completed" : ""}>
-                            {stage.title}
+                            {stage.text}
                           </span>
                         </div>
                         
@@ -767,38 +918,56 @@ export default function App() {
                         ) : null}
                       </div>
 
-                      <div className="timeline-node-subdesc">{stage.desc}</div>
+                      <div className="timeline-node-subdesc">{stageDesc}</div>
 
                       {/* Display dynamically fetched results inline for the customer to see! */}
-                      {stageStatus === "completed" && stage.index === 0 && activeIntent && (
+                      {stageStatus === "completed" && stage.text.toLowerCase().includes("intent") && activeIntent && (
                         <div className="timeline-extracted-inline">
-                          🔍 Detected Category: <strong>{activeIntent.service}</strong> {activeIntent.urgency && <span className="urgency-pill">Urgent</span>}
+                          🔍 Detected Category: <strong>{activeIntent.service}</strong> {activeIntent.severity === "high" && <span className="urgency-pill">Urgent</span>}
                         </div>
                       )}
 
-                      {stageStatus === "completed" && stage.index === 1 && activeIntent && (
+                      {stageStatus === "completed" && (stage.text.toLowerCase().includes("location") || stage.text.toLowerCase().includes("geocode")) && activeIntent && (
                         <div className="timeline-extracted-inline">
                           📍 Located Sector: <strong>{activeIntent.location}</strong>
                         </div>
                       )}
 
-                      {stageStatus === "completed" && stage.index === 2 && selectedProvider && (
+                      {stageStatus === "completed" && (stage.text.toLowerCase().includes("registry") || stage.text.toLowerCase().includes("scan") || stage.text.toLowerCase().includes("score")) && selectedProvider && (
                         <div className="timeline-extracted-inline">
                           👤 Balanced Partner: <strong>{selectedProvider.name}</strong> ({selectedProvider.matchScore}% Match Score)
                         </div>
                       )}
 
-                      {stageStatus === "completed" && stage.index === 3 && priceQuote && (
+                      {stageStatus === "completed" && (stage.text.toLowerCase().includes("pricing") || stage.text.toLowerCase().includes("quote") || stage.text.toLowerCase().includes("fare") || stage.text.toLowerCase().includes("price")) && priceQuote && (
                         <div className="timeline-extracted-inline">
                           💰 Billing fare: <strong>{priceQuote.totalPrice} PKR</strong>
+                        </div>
+                      )}
+
+                      {stageStatus === "completed" && (stage.text.toLowerCase().includes("querying") || stage.text.toLowerCase().includes("receipt") || stage.text.toLowerCase().includes("ledger")) && (
+                        <div className="timeline-extracted-inline">
+                          🗃️ Ledger Status: <strong>{pastBookings.length} bookings loaded</strong>
+                        </div>
+                      )}
+
+                      {stageStatus === "completed" && (stage.text.toLowerCase().includes("dispute") || stage.text.toLowerCase().includes("audit")) && (
+                        <div className="timeline-extracted-inline">
+                          🛡️ Resolution Status: <strong>{trackingStatus || "Audit completed"}</strong>
+                        </div>
+                      )}
+
+                      {stageStatus === "completed" && stage.text.toLowerCase().includes("response") && (
+                        <div className="timeline-extracted-inline">
+                          💬 Capacity Scan: <strong>Rozgar marketplace active in Islamabad</strong>
                         </div>
                       )}
 
                       {isOpen && stageTraces.length > 0 && (
                         <div className="timeline-node-body">
                           <div className="reasoning-drawer">
-                            {stageTraces.map((trace, idx) => (
-                              <div key={idx} className="reasoning-step-item">
+                            {stageTraces.map((trace, traceIdx) => (
+                              <div key={traceIdx} className="reasoning-step-item">
                                 <div className="reasoning-meta">
                                   <span className="reasoning-agent-badge">{trace.agent}</span>
                                   <span>{trace.timestamp}</span>
@@ -904,16 +1073,16 @@ export default function App() {
               <div className="invoice-divider"></div>
               <div className="invoice-row">
                 <span>Base service fare</span>
-                <span>{activeBooking.pricing?.basePrice || activeBooking.pricing} PKR</span>
+                <span>{activeBooking.pricing?.baseRate || activeBooking.pricing} PKR</span>
               </div>
               <div className="invoice-row">
                 <span>Travel proximity fee</span>
-                <span>{activeBooking.pricing?.travelFee || 0} PKR</span>
+                <span>{activeBooking.pricing?.distanceCost || 0} PKR</span>
               </div>
-              {activeBooking.pricing?.surgePrice > 0 && (
+              {activeBooking.pricing?.surgeSurplus > 0 && (
                 <div className="invoice-row surge">
                   <span>Surge price factor</span>
-                  <span>+{activeBooking.pricing.surgePrice} PKR</span>
+                  <span>+{activeBooking.pricing.surgeSurplus} PKR</span>
                 </div>
               )}
               {activeBooking.pricing?.loyaltyDiscount > 0 && (
@@ -1084,6 +1253,9 @@ export default function App() {
                 <span className="dot green"></span>
               </div>
               <span className="term-title">antigravity-agentic-orchestrator-shell</span>
+              <span className="env-restart-notice" style={{ color: "var(--accent-purple)", fontSize: "11px", marginLeft: "15px", opacity: 0.8, display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                💡 Edited .env? Restart the dev server (npm run dev) to apply API keys!
+              </span>
               <button className="refresh-logs-btn" onClick={() => setTraceLogs([])}>Clear Console</button>
             </div>
 
