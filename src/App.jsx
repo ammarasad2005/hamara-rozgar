@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
 import { ServiceOrchestrator } from "./agents/Orchestrator";
-import { db } from "./firebase";
 import { sampleRequests } from "./data/mockProviders";
 import { 
   Bot, User, Sparkles, Navigation, Calendar, 
@@ -18,7 +17,7 @@ export default function App() {
   
   // Simulator Chat states
   const [chatMessages, setChatMessages] = useState([
-    { sender: "bot", text: "Assalam-o-Alaikum! Main Google Antigravity Orchestrator hoon. Aapko kis kism ki service chahiye? (Urdu, Roman Urdu, or English)" }
+    { sender: "bot", text: "Assalam-o-Alaikum! Main Hamara-Rozgar Self-Hosted Orchestrator hoon. Aapko kis kism ki service chahiye? (Urdu, Roman Urdu, or English)" }
   ]);
   const [userInput, setUserInput] = useState("");
   
@@ -30,12 +29,12 @@ export default function App() {
   const [activeBooking, setActiveBooking] = useState(null);
   const [trackingStatus, setTrackingStatus] = useState(null);
 
-  // Configuration Settings (Maps, Firebase, Gemini)
-  const [gcpMapsKey, setGcpMapsKey] = useState("");
-  const [isUsingLiveMaps, setIsUsingLiveMaps] = useState(false);
-  const [firebaseProjectID, setFirebaseProjectID] = useState("service-orch-ch2-3219");
-  const [geminiApiKey, setGeminiApiKey] = useState("");
-  const [isUsingGemini, setIsUsingGemini] = useState(false);
+  // Configuration Settings (100% Open-Source & Self-Hosted Stack)
+  const [nlpEngine, setNlpEngine] = useState("regex"); // "regex" | "ollama" | "groq"
+  const [ollamaUrl, setOllamaUrl] = useState("http://localhost:11434");
+  const [ollamaModel, setOllamaModel] = useState("llama3");
+  const [groqApiKey, setGroqApiKey] = useState("");
+  const [mapEngine, setMapEngine] = useState("osm"); // "osm" | "offline"
 
   // Dynamic Browser Geolocation States
   const [gpsCoords, setGpsCoords] = useState(null); 
@@ -55,8 +54,7 @@ export default function App() {
       (state) => {
         if (state.workplan) setWorkplan(state.workplan);
         if (state.tasks) setTasks(state.tasks);
-      },
-      db
+      }
     );
     setOrchestrator(agent);
 
@@ -144,7 +142,7 @@ export default function App() {
         `Mode: ${mode}`,
         mode === "GPS" 
           ? "Switching to browser live coordinate lock system."
-          : "Enabling manual custom input. Enter any Pakistani sector, society, or address."
+          : "Enabling manual custom input. Enter any sector, landmark, or address."
       );
     }
     if (mode === "GPS" && !gpsCoords) {
@@ -159,17 +157,17 @@ export default function App() {
       "System",
       "Dynamic Geocoding Requested",
       `Address query: "${customLocationName}"`,
-      "Invoking Maps Geocoding service to convert string to coordinate numbers."
+      "Invoking OpenStreetMap Nominatim Geocoding service to convert string to coordinates."
     );
 
-    const coords = await orchestrator.getCoordinates(customLocationName, gcpMapsKey);
+    const coords = await orchestrator.getCoordinates(customLocationName, { mode: mapEngine });
     if (coords) {
       setCustomCoords(coords);
       setResolvedLocationName(customLocationName);
       orchestrator.logAgentTrace(
         "System",
         "Dynamic Geocoding Resolved",
-        `Coordinates: ${coords.latitude}, ${coords.longitude}`,
+        `OSM Coordinates: ${coords.latitude}, ${coords.longitude}`,
         "Successfully mapped dynamic address override to coordinates."
       );
     } else {
@@ -180,7 +178,7 @@ export default function App() {
         "System",
         "Dynamic Geocoding Fallback Lock",
         "Using default center: Lat: 33.6409, Lng: 72.9814",
-        "No live GCP key or search failed. Using G-13 coordinate baseline."
+        "No live OSM result or search failed. Using G-13 coordinate baseline."
       );
     }
   };
@@ -206,7 +204,12 @@ export default function App() {
     setTrackingStatus(null);
 
     // Call parsing agent
-    const parsedIntent = await orchestrator.parseIntent(text, geminiApiKey, chatMessages, previousIntent);
+    const parsedIntent = await orchestrator.parseIntent(
+      text, 
+      { mode: nlpEngine, ollamaUrl, ollamaModel, groqKey: groqApiKey }, 
+      chatMessages, 
+      previousIntent
+    );
     
     let activeCoords = null;
     
@@ -228,7 +231,7 @@ export default function App() {
       );
 
       // Resolve it on the fly
-      const resolved = await orchestrator.getCoordinates(parsedIntent.location, gcpMapsKey);
+      const resolved = await orchestrator.getCoordinates(parsedIntent.location, { mode: mapEngine });
       if (resolved) {
         setCustomCoords(resolved);
         activeCoords = resolved;
@@ -245,7 +248,7 @@ export default function App() {
           activeCoords = customCoords;
         } else {
           // Resolve customLocationName on the fly
-          const resolved = await orchestrator.getCoordinates(customLocationName, gcpMapsKey);
+          const resolved = await orchestrator.getCoordinates(customLocationName, { mode: mapEngine });
           if (resolved) {
             setCustomCoords(resolved);
             activeCoords = resolved;
@@ -273,7 +276,7 @@ export default function App() {
     }
 
     // Call matching agent
-    const providers = await orchestrator.discoverAndRank(parsedIntent, gcpMapsKey, activeCoords);
+    const providers = await orchestrator.discoverAndRank(parsedIntent, { mode: mapEngine }, activeCoords);
     setMatchedProviders(providers);
 
     if (providers.length === 0) {
@@ -355,7 +358,7 @@ export default function App() {
           { sender: "bot", text: `🛡️ **Review Registered**: Dispute registered. Case file escalated to human admin panel for review. Provider rating flagged.` }
         ]);
       }
-    }, gcpMapsKey, activeCoords);
+    }, { mode: mapEngine }, activeCoords);
   };
 
   return (
@@ -374,57 +377,88 @@ export default function App() {
           {/* Active Settings */}
           <div className="card custom-settings-panel">
             <h4 style={{ fontSize: "0.85rem", color: "var(--accent-purple)", display: "flex", gap: "6px", alignItems: "center" }}>
-              <Settings size={14} /> Cloud Configurations
+              <Settings size={14} /> Self-Hosted Configurations
             </h4>
             <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginTop: "8px" }}>
               <div>
-                <label style={{ fontSize: "0.7rem", color: "var(--text-secondary)" }}>Firebase Project ID</label>
-                <input 
-                  type="text" 
+                <label style={{ fontSize: "0.7rem", color: "var(--text-secondary)" }}>NLP Intent Engine</label>
+                <select 
                   className="settings-input" 
-                  value={firebaseProjectID}
-                  onChange={(e) => setFirebaseProjectID(e.target.value)}
-                />
+                  value={nlpEngine}
+                  onChange={(e) => setNlpEngine(e.target.value)}
+                  style={{ background: "rgba(17, 24, 39, 0.7)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "4px", color: "#fff", padding: "4px 8px", width: "100%", outline: "none" }}
+                >
+                  <option value="regex">Local Slang Parser (Offline Fallback)</option>
+                  <option value="ollama">Ollama (Self-Hosted Local LLM)</option>
+                  <option value="groq">Groq Cloud (Free Open LLM)</option>
+                </select>
               </div>
+
+              {nlpEngine === "ollama" && (
+                <>
+                  <div>
+                    <label style={{ fontSize: "0.7rem", color: "var(--text-secondary)" }}>Ollama Server URL</label>
+                    <input 
+                      type="text" 
+                      className="settings-input" 
+                      value={ollamaUrl}
+                      onChange={(e) => setOllamaUrl(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: "0.7rem", color: "var(--text-secondary)" }}>Ollama Model Name</label>
+                    <input 
+                      type="text" 
+                      className="settings-input" 
+                      value={ollamaModel}
+                      onChange={(e) => setOllamaModel(e.target.value)}
+                    />
+                  </div>
+                </>
+              )}
+
+              {nlpEngine === "groq" && (
+                <div>
+                  <label style={{ fontSize: "0.7rem", color: "var(--text-secondary)" }}>Groq Developer API Key</label>
+                  <input 
+                    type="password" 
+                    className="settings-input" 
+                    placeholder="Paste Groq API Key..."
+                    value={groqApiKey}
+                    onChange={(e) => setGroqApiKey(e.target.value)}
+                  />
+                </div>
+              )}
+
               <div>
-                <label style={{ fontSize: "0.7rem", color: "var(--text-secondary)" }}>Google Maps API Key</label>
-                <input 
-                  type="password" 
+                <label style={{ fontSize: "0.7rem", color: "var(--text-secondary)" }}>Geocoding & Places Engine</label>
+                <select 
                   className="settings-input" 
-                  placeholder={gcpMapsKey ? "••••••••••••••" : "Paste GCP API Key..."}
-                  value={gcpMapsKey}
-                  onChange={(e) => {
-                    setGcpMapsKey(e.target.value);
-                    setIsUsingLiveMaps(true);
-                  }}
-                />
+                  value={mapEngine}
+                  onChange={(e) => setMapEngine(e.target.value)}
+                  style={{ background: "rgba(17, 24, 39, 0.7)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "4px", color: "#fff", padding: "4px 8px", width: "100%", outline: "none" }}
+                >
+                  <option value="osm">OpenStreetMap Nominatim (Free & Dynamic)</option>
+                  <option value="offline">Local Dictionary Baseline (Offline)</option>
+                </select>
               </div>
-              <div>
-                <label style={{ fontSize: "0.7rem", color: "var(--text-secondary)" }}>Gemini API Key</label>
-                <input 
-                  type="password" 
-                  className="settings-input" 
-                  placeholder={geminiApiKey ? "••••••••••••••" : "Paste Gemini API Key..."}
-                  value={geminiApiKey}
-                  onChange={(e) => {
-                    setGeminiApiKey(e.target.value);
-                    setIsUsingGemini(true);
-                  }}
-                />
-              </div>
+
               <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "4px" }}>
-                <span className={`badge ${isUsingLiveMaps ? "active" : "pending"}`} style={{ fontSize: "0.6rem" }}>
-                  {isUsingLiveMaps ? "Live Google Maps active" : "Maps Simulation Mode"}
+                <span className={`badge ${mapEngine === "osm" ? "active" : "pending"}`} style={{ fontSize: "0.6rem" }}>
+                  {mapEngine === "osm" ? "OSM Nominatim Active" : "Offline Baseline Mode"}
                 </span>
-                <span className={`badge ${isUsingGemini ? "active" : "pending"}`} style={{ fontSize: "0.6rem" }}>
-                  {isUsingGemini ? "Gemini NLP active" : "Local Slang Parser"}
+                <span className={`badge ${nlpEngine !== "regex" ? "active" : "pending"}`} style={{ fontSize: "0.6rem" }}>
+                  {nlpEngine === "regex" ? "Offline Slang Parser" : nlpEngine === "ollama" ? `Ollama: ${ollamaModel}` : "Groq Llama 3 Active"}
+                </span>
+                <span className="badge success" style={{ fontSize: "0.6rem" }}>
+                  Database: Local Web Storage
                 </span>
               </div>
             </div>
           </div>
 
           {/* Provider Workload Index */}
-          <h4 style={{ fontSize: "0.9rem", color: "#fff", marginBottom: "10px" }}>Provider Workload & Balance</h4>
+          <h4 style={{ fontSize: "0.9rem", color: "#fff", marginBottom: "10px", marginTop: "15px" }}>Provider Workload & Balance</h4>
           <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
             {matchedProviders.length > 0 ? (
               matchedProviders.map((p) => (
@@ -684,7 +718,7 @@ export default function App() {
               {tasks.length > 0 ? (
                 tasks.map((task, i) => (
                   <div key={i} className="workplan-item">
-                    <span className={`progress-dot ${task.status}`}></span>
+                     <span className={`progress-dot ${task.status}`}></span>
                     <span style={{ color: task.status === "completed" ? "var(--text-muted)" : "#fff" }}>{task.text}</span>
                   </div>
                 ))
