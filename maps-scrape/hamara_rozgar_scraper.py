@@ -455,19 +455,35 @@ async def extract_listing_data(
                 pass
 
             # ── Rating ────────────────────────────────────────────────────────
-            # Google Maps renders: <button aria-label="4.5 stars 123 reviews">
-            # This aria-label is the most stable signal across DOM changes.
+            # Google Maps renders the rating inside the div.F7nice container.
+            # It contains the digital rating in float (e.g. 4.5) as well as the stars.
+            # We want to extract only the digital float rating.
             rating = None
             try:
-                # Try the aria-label approach first (most reliable)
-                rating_btn = await page.query_selector('[aria-label*=" stars"]')
-                if rating_btn:
-                    aria = await rating_btn.get_attribute("aria-label") or ""
-                    m = re.search(r"([\d.]+)\s+star", aria)
+                # 1. Try the user-provided div.F7nice container first
+                container = await page.query_selector('div.F7nice')
+                if container:
+                    text = (await container.inner_text() or "").strip()
+                    # Look for float rating (1.0 to 5.0 range, e.g. 4.5 or 5)
+                    m = re.search(r"\b([1-5]\.[\d])\b", text)
                     if m:
                         rating = float(m.group(1))
+                    else:
+                        m = re.search(r"\b([1-5](?:\.[\d]+)?)\b", text)
+                        if m:
+                            rating = float(m.group(1))
+
+                # 2. Try the aria-label approach as fallback (most stable fallback)
                 if rating is None:
-                    # Fallback: visible rating text inside feed card classes
+                    rating_btn = await page.query_selector('[aria-label*=" stars"]')
+                    if rating_btn:
+                        aria = await rating_btn.get_attribute("aria-label") or ""
+                        m = re.search(r"([\d.]+)\s+star", aria)
+                        if m:
+                            rating = float(m.group(1))
+
+                # 3. Fallback: visible rating text inside feed card classes
+                if rating is None:
                     for sel in ['span[aria-hidden="true"].fontDisplayLarge',
                                 '.MW4etd', 'span[aria-hidden="true"]']:
                         el = await page.query_selector(sel)
