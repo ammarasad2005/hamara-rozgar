@@ -434,7 +434,22 @@ async def extract_listing_data(
                 )
             except Exception:
                 pass  # continue and scrape whatever loaded
-            human_delay(0.8, 1.5)  # small additional buffer for JS widgets
+
+            # Dynamic poll wait: Wait up to 5.0 seconds for dynamic widgets to render.
+            # We poll every 200ms for rating (div.F7nice), phone (a[href^="tel:"]), or address.
+            # This ensures we don't scrape premature None values on slow network nodes.
+            try:
+                for _ in range(25):
+                    has_rating = await page.query_selector('div.F7nice')
+                    has_info = await page.query_selector('div.rogA2c, button[data-item-id*="address"], a[href^="tel:"]')
+                    if has_rating or has_info:
+                        break
+                    await asyncio.sleep(0.2)
+            except Exception:
+                pass
+
+            # Small additional delay using asyncio to allow micro-tasks to finalize.
+            await asyncio.sleep(random.uniform(0.3, 0.6))
 
             detail_url = page.url
             lat, lon = parse_coords_from_url(detail_url)
@@ -455,19 +470,38 @@ async def extract_listing_data(
                 pass
 
             # ── Rating ────────────────────────────────────────────────────────
-            # Google Maps renders: <button aria-label="4.5 stars 123 reviews">
-            # This aria-label is the most stable signal across DOM changes.
+            # Google Maps renders the rating inside the div.F7nice container.
+            # It contains the digital rating in float (e.g. 4.5) as well as the stars.
+            # We want to extract only the digital float rating.
             rating = None
             try:
-                # Try the aria-label approach first (most reliable)
-                rating_btn = await page.query_selector('[aria-label*=" stars"]')
-                if rating_btn:
-                    aria = await rating_btn.get_attribute("aria-label") or ""
-                    m = re.search(r"([\d.]+)\s+star", aria)
+                # 1. Try the user-provided div.F7nice container first
+                container = await page.query_selector('div.F7nice')
+                if container:
+                    text = (await container.inner_text() or "").strip()
+                    # Look for float rating (1.0 to 5.0 range, e.g. 4.5 or 5.0)
+                    m = re.search(r"([0-5]\.[\d])", text)
                     if m:
-                        rating = float(m.group(1))
+                        val = float(m.group(1))
+                        if 1.0 <= val <= 5.0:
+                            rating = val
+                    if rating is None:
+                        # Fallback to single digit rating like 5 or 4
+                        m = re.search(r"\b([1-5])\b", text)
+                        if m:
+                            rating = float(m.group(1))
+
+                # 2. Try the aria-label approach as fallback (most stable fallback)
                 if rating is None:
-                    # Fallback: visible rating text inside feed card classes
+                    rating_btn = await page.query_selector('[aria-label*=" stars"]')
+                    if rating_btn:
+                        aria = await rating_btn.get_attribute("aria-label") or ""
+                        m = re.search(r"([\d.]+)\s+star", aria)
+                        if m:
+                            rating = float(m.group(1))
+
+                # 3. Fallback: visible rating text inside feed card classes
+                if rating is None:
                     for sel in ['span[aria-hidden="true"].fontDisplayLarge',
                                 '.MW4etd', 'span[aria-hidden="true"]']:
                         el = await page.query_selector(sel)
