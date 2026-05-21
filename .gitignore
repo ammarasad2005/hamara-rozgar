@@ -23,3 +23,11 @@ dist-ssr
 *.sln
 *.sw?
 .vercel
+
+# Android build artifacts and keys
+*.apk
+*.idsig
+*.jks
+*.keystore
+scratch/
+src/modern-web-guidance-cache.md
