@@ -504,29 +504,30 @@ async def extract_listing_data(
                 pass
 
             # ── Phone ─────────────────────────────────────────────────────────
-            # Google Maps renders phone as: <button data-item-id="phone:tel:+923001234567">
-            # The aria-label usually reads "Phone: +92 300 1234567"
+            # Google Maps renders phone as: <a href="tel:+923169625448">+92 316 9625448</a>
+            # This is the most reliable selector — standard HTML tel: protocol.
             phone = None
             try:
-                phone_btn = await page.query_selector(
-                    'button[data-item-id*="phone:tel"], '
-                    'button[data-item-id*="phone"], '
-                    '[aria-label*="Phone"], [aria-label*="phone"]'
-                )
-                if phone_btn:
-                    # Try data-item-id first — it contains the raw number
-                    item_id = await phone_btn.get_attribute("data-item-id") or ""
-                    if "tel:" in item_id:
-                        raw_phone = item_id.split("tel:")[-1]
-                    else:
-                        raw_phone = (
-                            await phone_btn.get_attribute("aria-label")
-                            or await phone_btn.get_attribute("data-tooltip")
-                            or await phone_btn.inner_text()
-                        )
+                # PRIMARY: tel: href link — always present when a phone is listed
+                phone_link = await page.query_selector('a[href^="tel:"]')
+                if phone_link:
+                    href = await phone_link.get_attribute("href") or ""
+                    raw_phone = href.replace("tel:", "").strip()
                     phone = normalise_phone(raw_phone)
+
                 if not phone:
-                    # Fallback: full-body Pakistani phone pattern regex
+                    # SECONDARY: button/element with data-item-id containing phone number
+                    phone_el = await page.query_selector(
+                        'button[data-item-id*="phone:tel"], '
+                        '[data-item-id*="phone:tel"]'
+                    )
+                    if phone_el:
+                        item_id = await phone_el.get_attribute("data-item-id") or ""
+                        if "tel:" in item_id:
+                            phone = normalise_phone(item_id.split("tel:")[-1])
+
+                if not phone:
+                    # TERTIARY: full-body Pakistani phone pattern regex
                     all_text = await page.inner_text("body")
                     phone_matches = re.findall(
                         r"(?:\+92|0)(?:3\d{2}|51|42|21)\s*[-.\s]?\d{3}\s*[-.\s]?\d{4}", all_text
@@ -535,6 +536,7 @@ async def extract_listing_data(
                         phone = normalise_phone(phone_matches[0])
             except Exception:
                 pass
+
 
             # ── Address ───────────────────────────────────────────────────────
             # Google Maps renders: <button data-item-id="address">Street, City</button>
