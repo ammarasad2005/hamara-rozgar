@@ -42,9 +42,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install playwright pandas tqdm playwright-stealth
-          playwright install chromium
-          # Install browser dependencies for ubuntu
-          sudo playwright install-deps chromium
+          # Use 'python -m playwright' to ensure the pip-installed binary is found
+          python -m playwright install chromium
+          # Install system browser OS dependencies (without sudo PATH issues)
+          python -m playwright install-deps chromium
 
       # 4. Check if progress exists and print current status
       - name: Print Current Progress Status
