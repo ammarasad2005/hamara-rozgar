@@ -369,71 +369,99 @@ async def extract_listing_data(
     context: BrowserContext,
 ) -> list[Provider]:
     """
-    From the currently displayed search results, click each card, extract
-    details from the detail pane, and return a list of Provider objects.
-    Uses index-based Playwright Locators to completely bypass stale element exceptions.
+    Two-phase extraction strategy:
+    Phase 1 — Collect all place URLs and names from the feed WITHOUT clicking.
+              The <a class="hfpxzc"> anchor in Google Maps is an invisible overlay;
+              calling .click() on it always times out ("element is not visible").
+              Instead we read href + aria-label attributes directly.
+    Phase 2 — Navigate to each place URL via page.goto() and scrape the detail page.
+              This is clean, reliable, and fully avoids the click timeout issue.
+    Also filters results to Pakistan's geographic bounding box to reject
+    international results Google Maps sometimes injects when local supply is thin.
     """
+    # ── Pakistan geographic bounding box ──────────────────────────────────────
+    # Rawalpindi/Islamabad region with generous margin (roughly 30.0–37.0 N, 69.0–77.0 E)
+    PAK_LAT_MIN, PAK_LAT_MAX = 30.0, 37.0
+    PAK_LON_MIN, PAK_LON_MAX = 69.0, 77.0
+
+    def is_in_pakistan(lat, lon) -> bool:
+        if lat is None or lon is None:
+            return True  # unknown coords: allow through, will be filtered by dedup
+        return PAK_LAT_MIN <= lat <= PAK_LAT_MAX and PAK_LON_MIN <= lon <= PAK_LON_MAX
+
     results: list[Provider] = []
 
-    # Use locator for dynamic re-fetching to prevent stale reference exceptions.
-    # SEL_RESULT_ITEMS targets <a href="/maps/place/..."> links inside the feed.
-    # Each such anchor IS the clickable business card.
+    # ── PHASE 1: Harvest all place URLs from the feed (no clicking) ───────────
     cards_locator = page.locator(SEL_RESULT_ITEMS)
     card_count = await cards_locator.count()
     log.info(f"Found {card_count} result cards in feed.")
 
+    place_entries: list[tuple[str, str]] = []  # (place_url, name_hint)
     for idx in range(card_count):
         try:
             card = cards_locator.nth(idx)
+            href  = (await card.get_attribute("href") or "").strip()
+            name  = (await card.get_attribute("aria-label") or "").strip()
+            if href and "/maps/place/" in href and len(name) >= 2:
+                place_entries.append((href, name))
+        except Exception as e:
+            log.debug(f"Could not harvest card {idx}: {e}")
 
-            # Extract business name from the aria-label of the anchor,
-            # which Google Maps reliably populates (e.g. aria-label="Ali Plumber").
-            # Fall back to reading inner text of the first heading span inside.
-            biz_name = ""
-            try:
-                biz_name = (await card.get_attribute("aria-label") or "").strip()
-            except Exception:
-                pass
-            if not biz_name:
-                try:
-                    name_el = card.locator('[class*="fontHeadlineSmall"], .qBF1Pd, span[class]').first
-                    if await name_el.count() > 0:
-                        biz_name = (await name_el.inner_text()).strip()
-                except Exception:
-                    pass
-            if not biz_name or len(biz_name) < 2:
+    log.info(f"Harvested {len(place_entries)} place URLs to visit.")
+
+    # ── PHASE 2: Navigate to each place URL and scrape its detail page ─────────
+    results_page_url = page.url  # save search results URL to return to if needed
+
+    for place_url, name_hint in place_entries:
+        biz_name = name_hint
+        try:
+            # Pre-check coordinates from the href itself (fastest path, no page load needed)
+            pre_lat, pre_lon = parse_coords_from_url(place_url)
+            if not is_in_pakistan(pre_lat, pre_lon):
+                log.debug(f"Skipping non-Pakistan result: {name_hint} ({pre_lat},{pre_lon})")
                 continue
 
-            # Click the card to open its detail pane
-            await card.scroll_into_view_if_needed()
-            await card.click()
-            human_delay(1.5, 2.8)
+            # Navigate directly to the place detail page
+            await page.goto(place_url, wait_until="domcontentloaded", timeout=30_000)
+            human_delay(1.2, 2.2)
 
-            # Grab current URL — it contains coordinates
             detail_url = page.url
             lat, lon = parse_coords_from_url(detail_url)
+            if lat is None:
+                lat, lon = pre_lat, pre_lon  # fall back to href coords
 
-            # ── Business name (re-extract from detail pane for accuracy) ──
+            # Final geography check (URL may have redirected to a different place)
+            if not is_in_pakistan(lat, lon):
+                log.debug(f"Skipping after redirect (non-Pakistan): {biz_name} ({lat},{lon})")
+                await page.go_back(wait_until="domcontentloaded", timeout=15_000)
+                continue
+
+            # ── Business name (re-read from detail page h1 for accuracy) ──────
             try:
-                name_detail = await page.locator('h1[class*="DUwDvf"], h1.DUwDvf, [data-attrid="title"] span').first.inner_text(timeout=3_000)
+                name_detail = await page.locator(
+                    'h1[class*="DUwDvf"], h1.DUwDvf, [data-attrid="title"] span'
+                ).first.inner_text(timeout=4_000)
                 biz_name = name_detail.strip() or biz_name
             except Exception:
                 pass
 
-            # ── Rating ────────────────────────────────────────────────────
+            # ── Rating ────────────────────────────────────────────────────────
             rating = None
             try:
-                rating_el = await page.query_selector('[class*="ceNzKf"] span[aria-hidden="true"], .MW4etd, [class*="Aq14fc"]')
+                rating_el = await page.query_selector(
+                    '[class*="ceNzKf"] span[aria-hidden="true"], .MW4etd, [class*="Aq14fc"]'
+                )
                 if rating_el:
-                    rating_text = await rating_el.inner_text()
-                    rating = float(rating_text.strip().replace(",", "."))
+                    rating = float((await rating_el.inner_text()).strip().replace(",", "."))
             except Exception:
                 pass
 
-            # ── Review count ──────────────────────────────────────────────
+            # ── Review count ──────────────────────────────────────────────────
             review_count = None
             try:
-                review_el = await page.query_selector('[class*="UY7F9"], .F7nice span[aria-label*="review"], [aria-label*="reviews"]')
+                review_el = await page.query_selector(
+                    '[class*="UY7F9"], .F7nice span[aria-label*="review"], [aria-label*="reviews"]'
+                )
                 if review_el:
                     rc_text = await review_el.get_attribute("aria-label") or await review_el.inner_text()
                     m = re.search(r"([\d,]+)", rc_text)
@@ -442,11 +470,12 @@ async def extract_listing_data(
             except Exception:
                 pass
 
-            # ── Phone ──────────────────────────────────────────────────────
+            # ── Phone ─────────────────────────────────────────────────────────
             phone = None
             try:
-                # Google Maps renders phone in a button with data-tooltip containing "Copy phone"
-                phone_btn = await page.query_selector('[data-tooltip*="phone"], [aria-label*="phone"], button[data-item-id*="phone"]')
+                phone_btn = await page.query_selector(
+                    '[data-tooltip*="phone"], [aria-label*="phone"], button[data-item-id*="phone"]'
+                )
                 if phone_btn:
                     raw_phone = (
                         await phone_btn.get_attribute("aria-label")
@@ -454,17 +483,17 @@ async def extract_listing_data(
                         or await phone_btn.inner_text()
                     )
                     phone = normalise_phone(raw_phone)
-
                 if not phone:
-                    # Fallback: look for any visible text matching phone patterns
                     all_text = await page.inner_text("body")
-                    phone_matches = re.findall(r"(?:\+92|0)(?:3\d{2}|51|42|21)\s*[-.\s]?\d{3}\s*[-.\s]?\d{4}", all_text)
+                    phone_matches = re.findall(
+                        r"(?:\+92|0)(?:3\d{2}|51|42|21)\s*[-.\s]?\d{3}\s*[-.\s]?\d{4}", all_text
+                    )
                     if phone_matches:
                         phone = normalise_phone(phone_matches[0])
             except Exception:
                 pass
 
-            # ── Address ────────────────────────────────────────────────────
+            # ── Address ───────────────────────────────────────────────────────
             address = None
             try:
                 addr_btn = await page.query_selector(
@@ -480,16 +509,6 @@ async def extract_listing_data(
             except Exception:
                 pass
 
-            # ── Coordinates from URL (most reliable) ──────────────────────
-            if lat is None:
-                # Try extracting from any Google Maps link in the page
-                links = await page.query_selector_all('a[href*="maps"]')
-                for link in links[:5]:
-                    href = await link.get_attribute("href") or ""
-                    lat, lon = parse_coords_from_url(href)
-                    if lat:
-                        break
-
             provider = Provider(
                 name=biz_name,
                 specialization=category,
@@ -502,29 +521,33 @@ async def extract_listing_data(
                 google_place_url=detail_url if "place" in detail_url else None,
             )
             results.append(provider)
-            log.info(f"  Scraped [{len(results)}/{card_count}]: {biz_name} | {phone} | {rating}★ | ({lat},{lon})")
+            log.info(f"  ✓ Scraped [{len(results)}/{len(place_entries)}]: {biz_name} | {phone} | {rating}★ | ({lat:.4f},{lon:.4f})")
 
-            # ── Close Detail View ─────────────────────────────────────────
-            # Click the UI "Back to results" button (instead of browser page.go_back(), 
-            # which triggers a heavy reload and ruins the DOM state).
-            back_btn = page.locator('button[aria-label="Back to results"], button[aria-label="Back"], button[jsaction*="pane.back"]').first
-            if await back_btn.is_visible():
-                await back_btn.click()
-                await asyncio.sleep(random.uniform(0.6, 1.2))
+            # Go back to search results for the next place
+            await page.go_back(wait_until="domcontentloaded", timeout=15_000)
+            human_delay(0.8, 1.5)
 
         except Exception as e:
-            log.warning(f"Error extracting card index {idx}: {e}")
-            # Ensure detail pane is closed before trying the next card
+            log.warning(f"Error visiting place '{biz_name}': {e}")
+            # Best-effort navigation back to results
             try:
-                back_btn = page.locator('button[aria-label="Back to results"], button[aria-label="Back"], button[jsaction*="pane.back"]').first
-                if await back_btn.is_visible():
-                    await back_btn.click()
-                    await asyncio.sleep(0.8)
+                if results_page_url and results_page_url not in page.url:
+                    await page.goto(results_page_url, wait_until="domcontentloaded", timeout=20_000)
+                    human_delay(1.0, 2.0)
+                else:
+                    await page.go_back(wait_until="domcontentloaded", timeout=15_000)
             except Exception:
                 pass
             continue
 
+        # Small pause between businesses
+        human_delay(MIN_DELAY * 0.5, MAX_DELAY * 0.5)
+
     return results
+
+
+
+
 
 
 async def search_node(
