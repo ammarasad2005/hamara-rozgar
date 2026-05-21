@@ -434,7 +434,22 @@ async def extract_listing_data(
                 )
             except Exception:
                 pass  # continue and scrape whatever loaded
-            human_delay(0.8, 1.5)  # small additional buffer for JS widgets
+
+            # Dynamic poll wait: Wait up to 5.0 seconds for dynamic widgets to render.
+            # We poll every 200ms for rating (div.F7nice), phone (a[href^="tel:"]), or address.
+            # This ensures we don't scrape premature None values on slow network nodes.
+            try:
+                for _ in range(25):
+                    has_rating = await page.query_selector('div.F7nice')
+                    has_info = await page.query_selector('div.rogA2c, button[data-item-id*="address"], a[href^="tel:"]')
+                    if has_rating or has_info:
+                        break
+                    await asyncio.sleep(0.2)
+            except Exception:
+                pass
+
+            # Small additional delay using asyncio to allow micro-tasks to finalize.
+            await asyncio.sleep(random.uniform(0.3, 0.6))
 
             detail_url = page.url
             lat, lon = parse_coords_from_url(detail_url)
@@ -464,12 +479,15 @@ async def extract_listing_data(
                 container = await page.query_selector('div.F7nice')
                 if container:
                     text = (await container.inner_text() or "").strip()
-                    # Look for float rating (1.0 to 5.0 range, e.g. 4.5 or 5)
-                    m = re.search(r"\b([1-5]\.[\d])\b", text)
+                    # Look for float rating (1.0 to 5.0 range, e.g. 4.5 or 5.0)
+                    m = re.search(r"([0-5]\.[\d])", text)
                     if m:
-                        rating = float(m.group(1))
-                    else:
-                        m = re.search(r"\b([1-5](?:\.[\d]+)?)\b", text)
+                        val = float(m.group(1))
+                        if 1.0 <= val <= 5.0:
+                            rating = val
+                    if rating is None:
+                        # Fallback to single digit rating like 5 or 4
+                        m = re.search(r"\b([1-5])\b", text)
                         if m:
                             rating = float(m.group(1))
 
