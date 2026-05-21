@@ -421,9 +421,20 @@ async def extract_listing_data(
                 log.debug(f"Skipping non-Pakistan result: {name_hint} ({pre_lat},{pre_lon})")
                 continue
 
-            # Navigate directly to the place detail page
-            await page.goto(place_url, wait_until="domcontentloaded", timeout=30_000)
-            human_delay(1.2, 2.2)
+            # Navigate directly to the place detail page.
+            # Use "load" (not "domcontentloaded") so JS-rendered content is available.
+            await page.goto(place_url, wait_until="load", timeout=35_000)
+
+            # Explicitly wait for the detail panel h1 to appear — this is the
+            # most reliable signal that Google Maps has finished rendering the
+            # business info (rating, phone, address load after DOM is ready).
+            try:
+                await page.wait_for_selector(
+                    'h1, [data-attrid="title"]', timeout=8_000
+                )
+            except Exception:
+                pass  # continue and scrape whatever loaded
+            human_delay(0.8, 1.5)  # small additional buffer for JS widgets
 
             detail_url = page.url
             lat, lon = parse_coords_from_url(detail_url)
@@ -438,52 +449,84 @@ async def extract_listing_data(
 
             # ── Business name (re-read from detail page h1 for accuracy) ──────
             try:
-                name_detail = await page.locator(
-                    'h1[class*="DUwDvf"], h1.DUwDvf, [data-attrid="title"] span'
-                ).first.inner_text(timeout=4_000)
+                name_detail = await page.locator('h1').first.inner_text(timeout=4_000)
                 biz_name = name_detail.strip() or biz_name
             except Exception:
                 pass
 
             # ── Rating ────────────────────────────────────────────────────────
+            # Google Maps renders: <button aria-label="4.5 stars 123 reviews">
+            # This aria-label is the most stable signal across DOM changes.
             rating = None
             try:
-                rating_el = await page.query_selector(
-                    '[class*="ceNzKf"] span[aria-hidden="true"], .MW4etd, [class*="Aq14fc"]'
-                )
-                if rating_el:
-                    rating = float((await rating_el.inner_text()).strip().replace(",", "."))
+                # Try the aria-label approach first (most reliable)
+                rating_btn = await page.query_selector('[aria-label*=" stars"]')
+                if rating_btn:
+                    aria = await rating_btn.get_attribute("aria-label") or ""
+                    m = re.search(r"([\d.]+)\s+star", aria)
+                    if m:
+                        rating = float(m.group(1))
+                if rating is None:
+                    # Fallback: visible rating text inside feed card classes
+                    for sel in ['span[aria-hidden="true"].fontDisplayLarge',
+                                '.MW4etd', 'span[aria-hidden="true"]']:
+                        el = await page.query_selector(sel)
+                        if el:
+                            txt = (await el.inner_text()).strip().replace(",", ".")
+                            try:
+                                candidate = float(txt)
+                                if 1.0 <= candidate <= 5.0:
+                                    rating = candidate
+                                    break
+                            except ValueError:
+                                pass
             except Exception:
                 pass
 
             # ── Review count ──────────────────────────────────────────────────
             review_count = None
             try:
-                review_el = await page.query_selector(
-                    '[class*="UY7F9"], .F7nice span[aria-label*="review"], [aria-label*="reviews"]'
-                )
-                if review_el:
-                    rc_text = await review_el.get_attribute("aria-label") or await review_el.inner_text()
-                    m = re.search(r"([\d,]+)", rc_text)
+                # aria-label on the rating button usually contains review count too
+                rating_btn = await page.query_selector('[aria-label*=" stars"]')
+                if rating_btn:
+                    aria = await rating_btn.get_attribute("aria-label") or ""
+                    m = re.search(r"([\d,]+)\s+review", aria)
                     if m:
                         review_count = int(m.group(1).replace(",", ""))
+                if review_count is None:
+                    review_el = await page.query_selector('[aria-label*="reviews"]')
+                    if review_el:
+                        rc_text = await review_el.get_attribute("aria-label") or ""
+                        m = re.search(r"([\d,]+)", rc_text)
+                        if m:
+                            review_count = int(m.group(1).replace(",", ""))
             except Exception:
                 pass
 
             # ── Phone ─────────────────────────────────────────────────────────
+            # Google Maps renders phone as: <button data-item-id="phone:tel:+923001234567">
+            # The aria-label usually reads "Phone: +92 300 1234567"
             phone = None
             try:
                 phone_btn = await page.query_selector(
-                    '[data-tooltip*="phone"], [aria-label*="phone"], button[data-item-id*="phone"]'
+                    'button[data-item-id*="phone:tel"], '
+                    'button[data-item-id*="phone"], '
+                    '[aria-label*="Phone"], [aria-label*="phone"]'
                 )
                 if phone_btn:
-                    raw_phone = (
-                        await phone_btn.get_attribute("aria-label")
-                        or await phone_btn.get_attribute("data-tooltip")
-                        or await phone_btn.inner_text()
-                    )
+                    # Try data-item-id first — it contains the raw number
+                    item_id = await phone_btn.get_attribute("data-item-id") or ""
+                    if "tel:" in item_id:
+                        raw_phone = item_id.split("tel:")[-1]
+                    else:
+                        raw_phone = (
+                            await phone_btn.get_attribute("aria-label")
+                            or await phone_btn.get_attribute("data-tooltip")
+                            or await phone_btn.inner_text()
+                        )
                     phone = normalise_phone(raw_phone)
                 if not phone:
+                    # Fallback: full-body Pakistani phone pattern regex
                     all_text = await page.inner_text("body")
                     phone_matches = re.findall(
                         r"(?:\+92|0)(?:3\d{2}|51|42|21)\s*[-.\s]?\d{3}\s*[-.\s]?\d{4}", all_text
@@ -494,18 +537,25 @@ async def extract_listing_data(
                 pass
 
             # ── Address ───────────────────────────────────────────────────────
+            # Google Maps renders: <button data-item-id="address">Street, City</button>
             address = None
             try:
                 addr_btn = await page.query_selector(
-                    'button[data-item-id*="address"], [data-tooltip*="address"], '
-                    '[aria-label*="Address"], .rogA2c .Io6YTe'
+                    'button[data-item-id="address"], '
+                    'button[data-item-id*="address"], '
+                    '[aria-label*="Address"]'
                 )
                 if addr_btn:
                     address = (await addr_btn.inner_text()).strip()
                 if not address:
-                    addr_el = await page.query_selector('[class*="LrzXr"]')
-                    if addr_el:
-                        address = (await addr_el.inner_text()).strip()
+                    # Fallback: look for the address copyable text element
+                    for sel in ['.rogA2c .Io6YTe', '[class*="LrzXr"]', 'button[jsaction*="address"]']:
+                        el = await page.query_selector(sel)
+                        if el:
+                            candidate = (await el.inner_text()).strip()
+                            if candidate and len(candidate) > 5:
+                                address = candidate
+                                break
             except Exception:
                 pass
 
